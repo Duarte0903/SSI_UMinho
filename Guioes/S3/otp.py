@@ -1,82 +1,56 @@
+import os
 import sys
 
-def preproc(str):
-    l = []
-    for c in str:
-        if c.isalpha():
-            l.append(c.upper())
-    return "".join(l)
+def generate_random_bytes(num_bytes):
+    return os.urandom(num_bytes)
 
-def encode(str, number):
-    i = ord(str)
-    i += number
-    
-    while i > 90:
-       i -= 91
-       i += 65
-    
-    while i < 65:
-        i = 64 - i
-        i = 90 - i
-        
-    return chr(i)
+def read_bytes_from_file(filename):
+    with open(filename, 'rb') as file:
+        return file.read()
 
-def dec(chave, mensagem):
-    str_code = preproc(mensagem)
-    result_string = ""
-    i = -1
+def otp_setup(num_bytes, key_filename):
+    random_bytes = generate_random_bytes(num_bytes)
+    with open(key_filename, 'wb') as file:
+        file.write(random_bytes)
 
-    code = []
-    for char in chave:
-        number = ord(char) - 65
-        code.append(number)
+def otp_enc(message_filename, key_filename):
+    message = read_bytes_from_file(message_filename)
+    key = read_bytes_from_file(key_filename)
 
-    for char in str_code:
-        if i == len(code) - 1:
-            i = 0
-            result_string = result_string + encode(char, -code[i])
+    encrypted_message = bytes(x ^ y for x, y in zip(message, key))
 
-        else:
-            i += 1
-            result_string = result_string + encode(char, -code[i])
+    with open(message_filename + ".enc", 'wb') as file:
+        file.write(encrypted_message)
 
-    return result_string
+def otp_dec(ciphertext_filename, key_filename):
+    ciphertext = read_bytes_from_file(ciphertext_filename)
+    key = read_bytes_from_file(key_filename)
 
-def enc(chave, mensagem):
-    str_code = preproc(mensagem)
-    result_string = ""
-    i = -1
+    decrypted_message = bytes(x ^ y for x, y in zip(ciphertext, key))
 
-    code = []
-    for char in chave:
-        number = ord(char) - 65
-        code.append(number)
+    with open(ciphertext_filename + ".dec", 'wb') as file:
+        file.write(decrypted_message)
 
-    for char in str_code:
-        if i == len(code) - 1:
-            i = 0
-            result_string = result_string + encode(char, code[i])
 
-        else:
-            i += 1
-            result_string = result_string + encode(char, code[i])
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python otp.py <setup|enc|dec> args...")
+        sys.exit(1)
 
-    return result_string
+    command = sys.argv[1]
 
-def main(imp):
-    if len(imp) != 4:
-        print("Argumentos insuficientes")
-        return
+    if command == "setup":
+        _, _, num_bytes, key_filename = sys.argv
+        num_bytes = int(num_bytes)
+        otp_setup(num_bytes, key_filename)
 
-    operacao = imp[1]
-    chave = imp[2]
-    mensagem = imp[3]
+    elif command == "enc":
+        message_filename, key_filename = sys.argv[2:]
+        otp_enc(message_filename, key_filename)
 
-    if operacao == "enc":
-        print(enc(chave, mensagem))
+    elif command == "dec":
+        ciphertext_filename, key_filename = sys.argv[2:]
+        otp_dec(ciphertext_filename, key_filename)
 
-    elif operacao == "dec":
-        print(dec(chave, mensagem))
-
-if __name__ == '__main__':
-    main(sys.argv)
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,9 @@
 # Guião S4
 
 ## Respostas das Questões
+
 ### Q2
+
 Um "NONCE" é uma valor de segurança usado em criptografia para garantir que uma chave secreta seja utilizada apenas uma vez. Ele é tipicamente utilizado em esquemas de criptografia simétrica. Quando um "NONCE" é fixo, isto é, não muda entre as mensagens criptografadas, isso pode ter sérias implicações na segurança da cifra.
 
 Aqui estão alguns dos impactos de considerar um nonce fixo, como tudo 0:
