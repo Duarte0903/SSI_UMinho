@@ -1,42 +1,51 @@
 import sys
 
-def dec_cesar(crypt, shift):
-    result = ""
-    for c in crypt:
-        if c.isalpha():
-            i = ord(c) - shift
-            if i < 65:
-                i = 90 - (64 - i)
-            result += chr(i)
+# Função para decifrar o texto cifrado usando a cifra de César.
+# crypt (str): O texto cifrado.
+# shift (int): O deslocamento (chave) usado para a cifra de César.
+# result (str): O texto decifrado.
+
+def decrypt(ciphertext, key):
+    plaintext = ''
+    for char in ciphertext:
+        if char.isalpha():
+            shift = ord(char) - ord('A')
+            decrypted_char = chr(((shift - key) % 26) + ord('A'))
+            plaintext += decrypted_char
         else:
-            result += c
-    return result
+            plaintext += char
+    return plaintext
 
-def cesar(crypt, words):
-    for word in words:
-        for shift in range(26):
-            dec = dec_cesar(crypt, shift)
-            if word.lower() in dec.lower():
-                return shift, dec
-    return None, None
+# Função para tentar encontrar a chave de cifra de César que decifra o texto e contém pelo menos uma das palavras fornecidas.
+# crypt (str): O texto cifrado.
+# words (list): Uma lista de palavras que podem estar presentes no texto decifrado.
+# shift, dec (tuple): Uma tupla contendo a chave encontrada e o texto decifrado, ou (None, None) se nenhuma chave for encontrada.
 
-def main(imp):
-    if len(imp) != 4:
-        print("Argumentos insuficientes")
-        return
-    
-    crypt = imp[1]
-    word1 = imp[2]
-    word2 = imp[3]
+def cesar_attack(ciphertext, words):
+    for key in range(26):
+        decrypted_text = decrypt(ciphertext, key)
+        if any(word.upper() in decrypted_text for word in words):
+            return key, decrypted_text
+    return None, ''
 
-    shift, dec = cesar(crypt, [word1, word2])
+# Função principal que executa o ataque à cifra de César.
 
-    if shift is not None:
-        print(chr(ord('A') + shift))
-        print(dec)
+def main():
+    # Verifica se foram fornecidos argumentos suficientes
+    if len(sys.argv) < 3:
+        print("Usage: python3 cesar_attack.py <ciphertext> <word1> [<word2> ...]")
+        sys.exit(1)
 
+    ciphertext = sys.argv[1].upper()
+    words = [word.upper() for word in sys.argv[2:]]
+
+    key, decrypted_text = cesar_attack(ciphertext, words)
+
+    if key is None:
+        print("No matching key found.")
     else:
-        print("Não foi possível encontrar a chave")
+        print(chr(key + ord('A')))
+        print(decrypted_text)
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()
