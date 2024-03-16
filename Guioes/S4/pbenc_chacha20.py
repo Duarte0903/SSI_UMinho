@@ -9,8 +9,8 @@ def pbkdf2_key_derivation(passphrase, salt):
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         salt=salt,
-        iterations=100000,  # Ajuste o número de iterações conforme necessário
-        length=32,  # Tamanho da chave em bytes
+        iterations=100000,
+        length=32, 
         backend=default_backend()
     )
     key = kdf.derive(passphrase.encode())
@@ -32,20 +32,18 @@ def decrypt_chacha20(ciphertext, key, nonce):
     return decrypted_message
 
 def main():
-    if len(sys.argv) != 2:
-        print("Utilização: python3 pbenc_chacha20.py <ficheiro>")
+    if len(sys.argv) != 1:
+        print("Utilização: python3 pbenc_chacha20.py")
         sys.exit(1)
 
     passphrase = input("Introduza a passphrase: ")
-    salt = b'\x00'  # Defina um valor de salt adequado
+    salt = b'\x00'
     key = pbkdf2_key_derivation(passphrase, salt)
     nonce = generate_nonce()
 
-    with open(sys.argv[1], 'rb') as file:
-        ciphertext = file.read()
+    ciphertext = sys.stdin.buffer.read()
 
     decrypted_bytes = decrypt_chacha20(ciphertext, key, nonce)
-    # Faça o que for necessário com os bytes decifrados (salvar em um arquivo binário, etc.)
     print("Dados decifrados:", decrypted_bytes)
 
 if __name__ == '__main__':
