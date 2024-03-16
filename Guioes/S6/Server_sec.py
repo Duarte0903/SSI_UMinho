@@ -1,44 +1,66 @@
-import socket
-import sys
-from Crypto.Cipher import AES
+import asyncio
+import os
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-class ServerWorker:
-    def __init__(self, conn):
-        self.conn = conn
+conn_cnt = 0
+conn_port = 8441
+max_msg_size = 9999
+fixed_key_256 = b'\x00' * 32  # 256 bit
 
-    def process(self):
-        # Chave de criptografia
-        key = b'minha_chave_secreta'  # Chave fixa para simplificação
+class ServerWorker(object):
+    """ Classe que implementa a funcionalidade do SERVIDOR. """
+    def __init__(self, cnt, addr=None):
+        """ Construtor da classe. """
+        self.id = cnt
+        self.addr = addr
+        self.msg_cnt = 0
+        self.key = fixed_key_256  # Usando chave fixa de 256 bits
 
-        # Inicialização do cipher
-        cipher = AES.new(key, AES.MODE_GCM)
 
-        # Receber chave do cliente
-        client_key = self.conn.recv(1024)
+    def process(self, msg):
+        """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
+            Retorna a mensagem a transmitir como resposta (`None` para
+            finalizar ligação) """
+        self.msg_cnt += 1
+        cipher = AESGCM(self.key)
+        decrypted_msg = cipher.decrypt(nonce=msg[:12], data=msg[12:], associated_data=b'')
+        txt = decrypted_msg.decode()
+        print('%d : %r' % (self.id, txt))
+        new_msg = txt.upper().encode()
+        return new_msg if len(new_msg) > 0 else None
 
-        while True:
-            # Receber mensagem cifrada e tag
-            ciphertext = self.conn.recv(1024)
-            tag = self.conn.recv(16)
+async def handle_echo(reader, writer):
+    global conn_cnt
+    conn_cnt += 1
+    addr = writer.get_extra_info('peername')
+    srvwrk = ServerWorker(conn_cnt, addr)
+    data = await reader.read(max_msg_size)
+    while True:
+        if not data: continue
+        if data[:1] == b'\n': break
+        data = srvwrk.process(data)
+        if not data: break
+        writer.write(data)
+        await writer.drain()
+        data = await reader.read(max_msg_size)
+    print("[%d]" % srvwrk.id)
+    writer.close()
 
-            # Decifrar a mensagem
-            plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+def run_server():
+    loop = asyncio.new_event_loop()
+    coro = asyncio.start_server(handle_echo, '127.0.0.1', conn_port)
+    server = loop.run_until_complete(coro)
+    # Serve requests until Ctrl+C is pressed
+    print('Serving on {}'.format(server.sockets[0].getsockname()))
+    print('  (type ^C to finish)\n')
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    # Close the server
+    server.close()
+    loop.run_until_complete(server.wait_closed())
+    loop.close()
+    print('\nFINISHED!')
 
-            print("Mensagem recebida:", plaintext.decode())
-
-            # Responder ao cliente
-            self.conn.sendall(b"Recebido")
-
-def main():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("localhost", 12345))
-        s.listen()
-
-        while True:
-            conn, addr = s.accept()
-            print("Conexão estabelecida com", addr)
-            worker = ServerWorker(conn)
-            worker.process()
-
-if __name__ == "__main__":
-    main()
+run_server()
