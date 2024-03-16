@@ -16,16 +16,13 @@ def pbkdf2(password, salt, length, key_length):
     return key[:key_length]
 
 def encrypt_then_mac(password, plaintext):
-    # Derive a new key for MAC
     mac_key = pbkdf2(password, b'mac_salt', 32, 32)
 
-    # Encrypt using AES in CTR mode
     iv = os.urandom(16)
     cipher = Cipher(algorithms.AES(mac_key), modes.CTR(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(plaintext) + encryptor.finalize()
 
-    # Calculate HMAC over the encrypted text
     h = hmac.HMAC(mac_key, hashes.SHA256(), backend=default_backend())
     h.update(ciphertext)
     mac = h.finalize()
@@ -33,35 +30,32 @@ def encrypt_then_mac(password, plaintext):
     return (iv, ciphertext, mac)
 
 def verify_then_decrypt(password, data):
-    # Extract components
     iv, ciphertext, received_mac = data
 
-    # Derive a new key for MAC
     mac_key = pbkdf2(password, b'mac_salt', 32, 32)
 
-    # Verify MAC
     h = hmac.HMAC(mac_key, hashes.SHA256(), backend=default_backend())
     h.update(ciphertext)
     computed_mac = h.finalize()
 
     if computed_mac != received_mac:
         raise ValueError("MAC verification failed")
-
-    # Decrypt using AES in CTR mode
+    
     cipher = Cipher(algorithms.AES(mac_key), modes.CTR(iv), backend=default_backend())
     decryptor = cipher.decryptor()
     decrypted_text = decryptor.update(ciphertext) + decryptor.finalize()
 
     return decrypted_text
 
-# Example usage:
-password = b"your_password"
-plaintext = b"Hello, this is a secret message!"
+def main():
+    password = input("password: ").encode('utf-8')
+    plaintext = input("texto: ").encode('utf-8')
 
-# Encrypt and MAC
-cipher_data = encrypt_then_mac(password, plaintext)
-print("Encrypted and MAC'd data:", cipher_data)
+    cipher_data = encrypt_then_mac(password, plaintext)
+    print("Encrypted and MAC'd data:", cipher_data)
 
-# Verify and decrypt
-decrypted_text = verify_then_decrypt(password, cipher_data)
-print("Decrypted text:", decrypted_text.decode('utf-8'))
+    decrypted_text = verify_then_decrypt(password, cipher_data)
+    print("Decrypted text:", decrypted_text.decode('utf-8'))
+
+if __name__ == "__main__":
+    main()

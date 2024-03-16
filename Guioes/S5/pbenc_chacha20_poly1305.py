@@ -17,7 +17,7 @@ def encrypt_chacha20_poly1305(message, password):
     )
     key = kdf.derive(password.encode())
 
-    nonce = os.urandom(12)  # Alterado para nonce com 12 bytes
+    nonce = os.urandom(12)
     cipher = ChaCha20Poly1305(key)
     ct = cipher.encrypt(nonce, message.encode(), None)
 
@@ -25,7 +25,7 @@ def encrypt_chacha20_poly1305(message, password):
 
 def decrypt_chacha20_poly1305(ciphertext, password):
     data = urlsafe_b64decode(ciphertext)
-    salt, nonce, ct = data[:16], data[16:28], data[28:]  # Ajustado para 12 bytes de nonce
+    salt, nonce, ct = data[:16], data[16:28], data[28:]
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         salt=salt,
@@ -39,12 +39,15 @@ def decrypt_chacha20_poly1305(ciphertext, password):
 
     return decrypted_message.decode()
 
-# Exemplo de uso
-password = "senha123"
-message = "Olá, mundo!"
-ciphertext = encrypt_chacha20_poly1305(message, password)
-decrypted_message = decrypt_chacha20_poly1305(ciphertext, password)
+def main():
+    password = input("password: ")
+    message = input("texto: ")
+    ciphertext = encrypt_chacha20_poly1305(message, password)
+    decrypted_message = decrypt_chacha20_poly1305(ciphertext, password)
 
-print("Mensagem original:", message)
-print("Ciphertext:", ciphertext)
-print("Mensagem descriptografada:", decrypted_message)
+    print("Mensagem original:", message)
+    print("Ciphertext:", ciphertext)
+    print("Mensagem descriptografada:", decrypted_message)
+
+if __name__ == "__main__":
+    main()

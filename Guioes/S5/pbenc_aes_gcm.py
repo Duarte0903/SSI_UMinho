@@ -16,7 +16,7 @@ def encrypt_aes_gcm(message, password):
     )
     key = kdf.derive(password.encode())
 
-    nonce = os.urandom(12)  # O nonce deve ter 12 bytes para o AES-GCM
+    nonce = os.urandom(12)
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce), backend=default_backend())
     encryptor = cipher.encryptor()
     ct = encryptor.update(message.encode()) + encryptor.finalize()
@@ -40,12 +40,15 @@ def decrypt_aes_gcm(ciphertext, password):
 
     return decrypted_message.decode()
 
-# Exemplo de uso
-password = "senha123"
-message = "Olá, mundo!"
-ciphertext = encrypt_aes_gcm(message, password)
-decrypted_message = decrypt_aes_gcm(ciphertext, password)
+def main():
+    password = input("password: ")
+    message = input("texto: ")
+    ciphertext = encrypt_aes_gcm(message, password)
+    decrypted_message = decrypt_aes_gcm(ciphertext, password)
 
-print("Mensagem original:", message)
-print("Ciphertext:", ciphertext)
-print("Mensagem descriptografada:", decrypted_message)
+    print("Mensagem original:", message)
+    print("Ciphertext:", ciphertext)
+    print("Mensagem descriptografada:", decrypted_message)
+
+if __name__ == "__main__":
+    main()
