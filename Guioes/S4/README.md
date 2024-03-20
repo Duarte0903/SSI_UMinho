@@ -15,6 +15,7 @@ Aqui estão alguns dos impactos de considerar um nonce fixo, como tudo 0:
 
 ### Q3
 
+O impacto de usar o programa chacha20_int_attck.py nos criptogramas produzidos pelos programas cfich_aes_cbc.py e cfich_aes_ctr.py seria inexistente. Isso acontece devido ao facto de que o chacha20_int_attck.py é projetado especificamente para manipular criptogramas gerados pelo algoritmo ChaCha20, enquanto os criptogramas produzidos por cfich_aes_cbc.py e cfich_aes_ctr.py são cifrados usando o algoritmo AES, que é diferente do ChaCha20. Portanto, o programa chacha20_int_attck.py não seria aplicável aos criptogramas gerados por AES CBC ou AES CTR.
 
 ## Relatório do Guião da Semana 4
 
@@ -31,5 +32,14 @@ Neste guião, implementamos diferentes programas em Python para cifrar arquivos,
     - O programa chacha20_int_attck.py foi projetado para ilustrar como a informação cifrada pode ser manipulada se um fragmento do texto limpo for conhecido.
     - Ele recebe como entrada o nome do arquivo contendo o criptograma, a posição onde o texto limpo é conhecido, o texto limpo original nessa posição e o - novo texto desejado nessa posição.
     - O programa então modifica o criptograma para refletir as alterações desejadas e grava o resultado no arquivo <fctxt>.attck.
+
+3. Programas cfich_aes_cbc.py e cfich_aes_ctr.py
+    - Os programas cfich_aes_cbc.py e cfich_aes_ctr.py foram criados para cifrar arquivos usando a cifra por blocos AES, nos modos CBC e CTR.
+    - Eles recebem como entrada o nome do arquivo a cifrar e a chave de 256 bits (32 bytes) para o algoritmo AES.
+
+4. Programa pbenc_chacha20.py~
+    - O programa pbenc_chacha20.py foi pensado para armazenar segredos cryptográficas em ficheiros de maneira a estarem devidamente protegidas.
+    - Deriva os segredos a partir de uma frasepass (uma palavrapasse mas é uma frase em vez de uma palavra) com recurso a uma Key Derivation Functions (KDF), o que se designa por Password-Based Encryption.
+    - Armazena em ficheiros devidamente protegidos, esta por sua vez recorrendo a PasswordBased Encryption para a sua própria proteção.
 
 Em resumo, este projeto nos proporcionou uma compreensão prática das operações de criptografia de arquivos, incluindo a cifra de blocos e a cifra sequencial, bem como a importância da integridade dos dados e o uso adequado de Password-Based Encryption para proteger chaves criptográficas.
