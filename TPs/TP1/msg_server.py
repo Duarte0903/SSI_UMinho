@@ -1,4 +1,6 @@
+import os
 import asyncio
+from cryptography.hazmat.primitives.serialization import pkcs12
 
 conn_cnt = 0
 conn_port = 8443
@@ -7,13 +9,19 @@ max_msg_size = 9999
 # Defina uma estrutura de dados para armazenar as mensagens dos usuários
 user_data = {}
 
+def get_userdata(p12_fname):
+    with open(p12_fname, "rb") as f:
+        p12 = f.read()
+    password = None # p12 não está protegido...
+    (private_key, user_cert, [ca_cert]) = pkcs12.load_key_and_certificates(p12, password)
+    return (private_key, user_cert, ca_cert)
+
 class ServerWorker(object):
-    """ Classe que implementa a funcionalidade do SERVIDOR. """
     def __init__(self, cnt, addr=None):
-        """ Construtor da classe. """
         self.id = cnt
         self.addr = addr
         self.msg_cnt = 0
+        self.private_key, self.user_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -40,6 +48,7 @@ class ServerWorker(object):
                 user_data[uid] = []
             user_data[uid].append((subject, message))
             return "Mensagem enviada e armazenada com sucesso!"
+        
         elif command == "-user":
             # Implemente a lógica para tratar a opção -user
             pass
@@ -50,8 +59,12 @@ class ServerWorker(object):
             # Implemente a lógica para obter uma mensagem específica
             pass
         elif command == "help":
-            # Implemente a lógica para mostrar instruções de uso
-            pass
+            return b"Usage:\n-user <FNAME>\tSpecify user data file (default: userdata.p12)\n" \
+                    b"send <UID> <SUBJECT>\tSend a message\n" \
+                    b"askqueue\tRequest unread messages\n" \
+                    b"getmsg <NUM>\tRetrieve a specific message\n" \
+                    b"help\tPrint this help message\n"
+    
         else:
             return "Comando desconhecido"
         return None
