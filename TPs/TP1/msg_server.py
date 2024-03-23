@@ -1,13 +1,18 @@
 import os
+import re
 import asyncio
 from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.hazmat.primitives import serialization
 
 conn_cnt = 0
 conn_port = 8443
 max_msg_size = 9999
 
-# Defina uma estrutura de dados para armazenar as mensagens dos usuários
-user_data = {}
+help_str = "Usage:\n-user <FNAME>\tSpecify user data file (default: userdata.p12)\n" \
+              "send <UID> <SUBJECT>\tSend a message\n" \
+                "askqueue\tRequest unread messages\n" \
+                "getmsg <NUM>\tRetrieve a specific message\n" \
+                "help\tPrint this help message\n"
 
 def get_userdata(p12_fname):
     with open(p12_fname, "rb") as f:
@@ -22,6 +27,9 @@ class ServerWorker(object):
         self.addr = addr
         self.msg_cnt = 0
         self.private_key, self.user_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
+        self.user_public_keys = {}  # Dicionário para armazenar as chaves públicas dos utilizadores UID -> chave
+        self.message_queues = {}    # Dicionário para armazenar as filas de mensagens dos utilizadores UID -> lista de mensagens
+        self.timestamp_records = {} # Dicionário para armazenar os timestamps das mensagens dos utilizadores msg_cnt -> timestamp
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -31,42 +39,28 @@ class ServerWorker(object):
         print('%d : %r' % (self.id, txt))
         parts = txt.split(' ')
         command = parts[0]
+
         if command == "send":
             if len(parts) < 3:
-                return "Erro: Comando send requer <UID> <SUBJECT>"
-            
-            # Obtém o UID do destinatário e o assunto da mensagem
-            uid = parts[1]
-            subject = ' '.join(parts[2:])
-            
-            # Lê o conteúdo da mensagem do stdin
-            print("Escreva a mensagem (limite de 1000 bytes): ")
-            message = input()[:1000]
-
-            # Armazena a mensagem no dicionário de dados do utilizador
-            if uid not in user_data:
-                user_data[uid] = []
-            user_data[uid].append((subject, message))
-            return "Mensagem enviada e armazenada com sucesso!"
+                return "MSG RELAY SERVICE: command error!" + "\n" + help_str
         
-        elif command == "-user":
-            # Implemente a lógica para tratar a opção -user
-            pass
+        elif re.match(r'-(\w+)', command):
+            return txt
+               
+        elif command == "public":
+            public_key = parts[1].encode()
+            self.user_public_keys[self.id] = serialization.load_pem_public_key(public_key)
+            return "MSG RELAY SERVICE: public key received"
+
         elif command == "askqueue":
-            # Implemente a lógica para solicitar a lista de mensagens não lidas
             pass
-        elif command == "getmsg":
-            # Implemente a lógica para obter uma mensagem específica
-            pass
+
         elif command == "help":
-            return b"Usage:\n-user <FNAME>\tSpecify user data file (default: userdata.p12)\n" \
-                    b"send <UID> <SUBJECT>\tSend a message\n" \
-                    b"askqueue\tRequest unread messages\n" \
-                    b"getmsg <NUM>\tRetrieve a specific message\n" \
-                    b"help\tPrint this help message\n"
-    
+            return help_str
+
         else:
-            return "Comando desconhecido"
+            return "MSG RELAY SERVICE: command error!" + "\n" + help_str
+        
         return None
 
 async def handle_echo(reader, writer):
