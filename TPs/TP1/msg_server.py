@@ -27,9 +27,14 @@ class ServerWorker(object):
         self.addr = addr
         self.msg_cnt = 0
         self.private_key, self.user_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
+        self.public_key = self.user_cert.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+
         self.user_public_keys = {}  # Dicionário para armazenar as chaves públicas dos utilizadores UID -> chave
         self.message_queues = {}    # Dicionário para armazenar as filas de mensagens dos utilizadores UID -> lista de mensagens
-        self.timestamp_records = {} # Dicionário para armazenar os timestamps das mensagens dos utilizadores msg_cnt -> timestamp
+        self.timestamp_records = {} # Dicionário para armazenar os timestamps das mensagens dos utilizadores msg_cnt (msg_id) -> timestamp
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -49,11 +54,8 @@ class ServerWorker(object):
                
         elif command == "public":
             public_key = parts[1].encode()
-            self.user_public_keys[self.id] = serialization.load_pem_public_key(public_key)
-            return "MSG RELAY SERVICE: public key received"
-
-        elif command == "askqueue":
-            pass
+            self.user_public_keys[self.id] = public_key
+            return f"server_public {self.public_key.decode()}"
 
         elif command == "help":
             return help_str

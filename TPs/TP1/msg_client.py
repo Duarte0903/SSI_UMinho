@@ -8,6 +8,9 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 
 conn_port = 8443
 max_msg_size = 9999
@@ -17,7 +20,6 @@ def get_userdata(p12_fname):
         p12 = f.read()
     password = None # p12 não está protegido...
     (private_key, user_cert, [ca_cert]) = pkcs12.load_key_and_certificates(p12, password)
-    print("User data loaded.")
     return (private_key, user_cert, ca_cert)
 
 class Client:
@@ -28,6 +30,8 @@ class Client:
         self.user_cert = None
         self.ca_cert = None
         self.public_key = None
+        self.server_public_key = None
+        self.shared_key = None
 
     def process(self, msg=b""):
         self.msg_cnt +=1
@@ -47,8 +51,6 @@ class Client:
                 fname = args[0]
                 if not os.path.isfile(fname):
                     return "User data not found!"
-                
-            print("User data file found.")
 
             private_key, user_cert, ca_cert = get_userdata(fname)
             self.private_key = private_key
@@ -62,7 +64,11 @@ class Client:
 
             send_msg = f"public {self.public_key.decode()}\n"
             return send_msg.encode()
-
+        
+        elif cmd == "server_public":
+            server_public_key = args[0].encode()
+            self.server_public_key = server_public_key
+            
         elif cmd == "send":
             if len(args) != 2:
                 return "help"
@@ -72,6 +78,14 @@ class Client:
 
             print("Escreva a mensagem (limite de 1000 bytes): ")
             message = input()[:1000]
+
+            signature = self.private_key.sign(
+                message.encode(),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+
+            return f"send {uid} {subject} {message} {signature}"
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')
@@ -87,7 +101,7 @@ async def tcp_echo_client():
     while msg:
         writer.write(msg)
         msg = await reader.read(max_msg_size)
-        if msg :
+        if msg:
             msg = client.process(msg)
         else:
             break
