@@ -30,7 +30,6 @@ def cert_validsubject(cert, attrs=[]):
                 "Certificate subject does not match expected value"
             )
 
-
 def cert_validexts(cert, policy=[]):
     """valida extensões do certificado.
     'policy' é uma lista de pares '(ext,pred)' onde 'ext' é o OID de uma extensão e 'pred'
@@ -45,23 +44,32 @@ def cert_validexts(cert, policy=[]):
 
 def valida_cert(certificate, subject):
     try:
-        cert = cert_load(certificate)
+        # cert = cert_load(certificate)
+        
         # obs: pressupõe que a cadeia de certifica só contém 2 níveis
-        cert.verify_directly_issued_by(cert_load('MSG_CA.crt'))
+        certificate.verify_directly_issued_by(cert_load("projCA/MSG_CA.crt"))
+        print("Certificate is signed by CA!")
+        
         # verificar período de validade...
-        cert_validtime(cert)
+        cert_validtime(certificate)
+        print("Certificate is in valid time!")
+
         # verificar identidade... (e.g.)
-        cert_validsubject(cert, [(x509.NameOID.COMMON_NAME, subject)])
+        cert_validsubject(certificate, subject)
+        print("Certificate subject is valid!")
+        
         # verificar aplicabilidade... (e.g.)
-        # cert_validexts(
-        #    cert,
-        #    [
-        #        (
-        #            x509.ExtensionOID.EXTENDED_KEY_USAGE,
-        #            lambda e: x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in e,
-        #        )
-        #    ],
-        #)
+        cert_validexts(
+            certificate,
+            [
+                (
+                    x509.ExtensionOID.EXTENDED_KEY_USAGE,
+                    lambda e: x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in e,
+                )
+            ],
+        )
+        print("Certificate extensions are valid!")
+        
         print("Certificate is valid!")
         return True
 

@@ -3,6 +3,7 @@ import datetime
 import os
 import re
 import time
+import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
@@ -89,22 +90,17 @@ class ServerWorker(object):
                 certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
                 
                 user_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
+                print(f"user certificate: {user_certificate}")
+                print(f"ca certificate: {self.ca_cert}")
 
-                self.ca_cert.public_key().verify(
-                    user_certificate.signature,
-                    user_certificate.tbs_certificate_bytes,
-                    padding.PKCS1v15(),
-                    user_certificate.signature_hash_algorithm,
-                )
-
+                if valida.valida_cert(user_certificate, user_certificate.subject):
+                    user_uid = user_certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+                    self.user_public_keys[user_uid] = user_certificate.public_key()
+                    self.message_queues[user_uid] = []
+                    return "MSG RELAY SERVICE: certificate validated!"
                 
-
-                uid = user_certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-
-                self.user_public_keys[uid] = user_certificate.public_key()
-                self.message_queues[uid] = []
-                
-                return "User certificate loaded successfully!"
+                else:
+                    return "MSG RELAY SERVICE: certificate not validated!"
             
             except Exception as e:
                 print(e)
