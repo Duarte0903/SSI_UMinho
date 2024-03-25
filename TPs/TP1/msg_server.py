@@ -1,8 +1,16 @@
+import asyncio
+import datetime
 import os
 import re
-import asyncio
+import time
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
+from cryptography import x509
+from cryptography.x509.extensions import ExtensionOID
+from cryptography.x509.oid import NameOID
 
 conn_cnt = 0
 conn_port = 8443
@@ -27,6 +35,7 @@ class ServerWorker(object):
         self.addr = addr
         self.msg_cnt = 0
         self.private_key, self.user_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
+
         self.public_key = self.user_cert.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -34,7 +43,6 @@ class ServerWorker(object):
 
         self.user_public_keys = {}  # Dicionário para armazenar as chaves públicas dos utilizadores UID -> chave
         self.message_queues = {}    # Dicionário para armazenar as filas de mensagens dos utilizadores UID -> lista de mensagens
-        self.timestamp_records = {} # Dicionário para armazenar os timestamps das mensagens dos utilizadores msg_cnt (msg_id) -> timestamp
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -48,14 +56,59 @@ class ServerWorker(object):
         if command == "send":
             if len(parts) < 3:
                 return "MSG RELAY SERVICE: command error!" + "\n" + help_str
+            
+            uid = parts[1]
+            subject = parts[2]
+            message = parts[3]
+            signature = parts[4]
+
+            if uid not in self.user_public_keys:
+                return "MSG RELAY SERVICE: UID unkown!"
+            
+            public_key = self.user_public_keys[uid]
+
+            if public_key.verify(
+                signature,
+                message.encode(),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            ):
+                timestamp = time.time()
+                self.message_queues[uid].append((self.msg_cnt, subject, message, timestamp))
+                print(self.message_queues[uid])
+
+            else:
+                return "MSG RELAY SERVICE: Invalid signature!"
         
-        elif re.match(r'-(\w+)', command):
+        elif command.startswith("-"):
             return txt
                
-        elif command == "public":
-            public_key = parts[1].encode()
-            self.user_public_keys[self.id] = public_key
-            return f"server_public {self.public_key.decode()}"
+        elif command == "user_cert":
+            try:
+                pattern = r'^user_cert\s+'
+                certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
+                
+                user_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
+
+                self.ca_cert.public_key().verify(
+                    user_certificate.signature,
+                    user_certificate.tbs_certificate_bytes,
+                    padding.PKCS1v15(),
+                    user_certificate.signature_hash_algorithm,
+                )
+
+                
+
+                uid = user_certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+
+                self.user_public_keys[uid] = user_certificate.public_key()
+                self.message_queues[uid] = []
+                
+                return "User certificate loaded successfully!"
+            
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error loading user certificate!"
 
         elif command == "help":
             return help_str

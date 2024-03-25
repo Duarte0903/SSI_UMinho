@@ -1,16 +1,13 @@
-# Código baseado em https://docs.python.org/3.6/library/asyncio-stream.html#tcp-echo-client-using-streams
 import asyncio
-import socket
-import sys
-import re
 import os
+import re
+import sys
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+from cryptography import x509
 
 conn_port = 8443
 max_msg_size = 9999
@@ -32,6 +29,9 @@ class Client:
         self.public_key = None
         self.server_public_key = None
         self.shared_key = None
+        self.pseudonym = None
+        self.cn = None
+        self.ou = None
 
     def process(self, msg=b""):
         self.msg_cnt +=1
@@ -57,27 +57,38 @@ class Client:
             self.user_cert = user_cert
             self.ca_cert = ca_cert
 
+            self.pseudonym = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+            self.ou = user_cert.subject.get_attributes_for_oid(x509.NameOID.ORGANIZATIONAL_UNIT_NAME)[0].value
+            self.cn = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+
             self.public_key = self.user_cert.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
 
-            send_msg = f"public {self.public_key.decode()}\n"
+            print("User certificate loaded!")
+
+            send_msg = f"user_cert {self.user_cert.public_bytes(encoding=serialization.Encoding.PEM).decode()}"
+
             return send_msg.encode()
         
-        elif cmd == "server_public":
-            server_public_key = args[0].encode()
-            self.server_public_key = server_public_key
-            
+        elif cmd == "server_cert":
+            if not args:
+                return "Server certificate not found!"
+
+            server_cert = x509.load_pem_x509_certificate(args[0].encode(), default_backend())
+            self.server_public_key = server_cert.public_key()
+
+            print("Server certificate loaded!")
+
         elif cmd == "send":
             if len(args) != 2:
                 return "help"
 
             uid = args[0]
-            subject = ' '.join(args[1:])
+            subject = args[1]
 
-            print("Escreva a mensagem (limite de 1000 bytes): ")
-            message = input()[:1000]
+            message = input("Escreve a mensagem (limite de 1000 bytes): ")[:1000]
 
             signature = self.private_key.sign(
                 message.encode(),
