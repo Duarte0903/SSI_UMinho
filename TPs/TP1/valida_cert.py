@@ -1,4 +1,5 @@
 from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import padding
 import datetime
 
 def cert_load(fname):
@@ -57,7 +58,7 @@ def valida_cert(certificate, subject):
 
         # verificar identidade... (e.g.)
         cert_validsubject(certificate, [(x509.NameOID.COMMON_NAME, subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value)])
-        print("Certificate subject is valid!")
+        #print("Certificate subject is valid!")
         
         # verificar aplicabilidade... (e.g.)
         cert_validexts(
@@ -65,12 +66,12 @@ def valida_cert(certificate, subject):
             [
                 (
                     x509.ExtensionOID.EXTENDED_KEY_USAGE,
-                    lambda e: x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in e,
+                    lambda e: x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in e or x509.oid.ExtendedKeyUsageOID.SERVER_AUTH in e,
                 )
             ],
         )
         print("Certificate extensions are valid!")
-        
+
         print("Certificate is valid!")
         return True
 

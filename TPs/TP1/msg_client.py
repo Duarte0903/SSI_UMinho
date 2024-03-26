@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography import x509
+from cryptography.x509.oid import NameOID
 
 conn_port = 8443
 max_msg_size = 9999
@@ -33,6 +34,7 @@ class Client:
         self.cn = None
         self.ou = None
 
+
     def process(self, msg=b""):
         self.msg_cnt +=1
 
@@ -40,17 +42,17 @@ class Client:
         cmd = cmd_parts[0]
         args = cmd_parts[1:]
 
-        if re.match(r'-(\w+)', msg.decode()):
-            user = cmd[1:]
-
+        match = re.match(r'^-user (\w+)$', msg.decode())
+        if match:
+            user = match.group(1)
+            if not user:
+                return "User data not found!"
+            fname = f"projCA/{user}.p12"
+            
             if not args:
                 fname = "projCA/" + user + ".p12"
                 if not os.path.isfile(fname):
-                    return "User data not found!"
-            else:
-                fname = args[0]
-                if not os.path.isfile(fname):
-                    return "User data not found!"
+                    return "User data not found!"""
 
             private_key, user_cert, ca_cert = get_userdata(fname)
             self.private_key = private_key
@@ -73,13 +75,20 @@ class Client:
             return send_msg.encode()
         
         elif cmd == "server_cert":
-            pattern = r'^server_cert\s+'
-            certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
-            server_cert = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
+            try:
+                pattern = r'^server_cert\s+'
+                certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
+                
+                server_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
+                    
+                if valida.valida_cert(server_certificate, server_certificate.subject):
+                    server_uid = server_certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value
+                    self.server_public_key = server_certificate.public_key()
+            
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error loading user certificate!"
 
-            if valida.valida_cert(server_cert, server_cert.subject):
-                self.server_public_key = server_cert.public_key()
-                print("Server certificate loaded!")
 
         elif cmd == "send":
             if len(args) != 2:

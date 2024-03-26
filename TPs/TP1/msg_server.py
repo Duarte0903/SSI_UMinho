@@ -109,7 +109,7 @@ class ServerWorker(object):
             return help_str
 
         else:
-            return "MSG RELAY SERVICE: command error!" + "\n" + help_str
+            return "MSG RELAY SERVICE: command error!"
         
         return None
 
