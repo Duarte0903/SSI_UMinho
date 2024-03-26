@@ -90,14 +90,13 @@ class ServerWorker(object):
                 certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
                 
                 user_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
-                print(f"user certificate: {user_certificate}")
-                print(f"ca certificate: {self.ca_cert}")
 
                 if valida.valida_cert(user_certificate, user_certificate.subject):
-                    user_uid = user_certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+                    user_uid = user_certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value
                     self.user_public_keys[user_uid] = user_certificate.public_key()
                     self.message_queues[user_uid] = []
-                    return "MSG RELAY SERVICE: certificate validated!"
+                    send_msg = f"server_cert {self.user_cert.public_bytes(encoding=serialization.Encoding.PEM).decode()}"
+                    return send_msg
                 
                 else:
                     return "MSG RELAY SERVICE: certificate not validated!"

@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import sys
+import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -28,7 +29,6 @@ class Client:
         self.ca_cert = None
         self.public_key = None
         self.server_public_key = None
-        self.shared_key = None
         self.pseudonym = None
         self.cn = None
         self.ou = None
@@ -73,13 +73,13 @@ class Client:
             return send_msg.encode()
         
         elif cmd == "server_cert":
-            if not args:
-                return "Server certificate not found!"
+            pattern = r'^server_cert\s+'
+            certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
+            server_cert = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
 
-            server_cert = x509.load_pem_x509_certificate(args[0].encode(), default_backend())
-            self.server_public_key = server_cert.public_key()
-
-            print("Server certificate loaded!")
+            if valida.valida_cert(server_cert, server_cert.subject):
+                self.server_public_key = server_cert.public_key()
+                print("Server certificate loaded!")
 
         elif cmd == "send":
             if len(args) != 2:

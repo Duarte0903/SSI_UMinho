@@ -29,6 +29,7 @@ def cert_validsubject(cert, attrs=[]):
             raise x509.verification.VerificationError(
                 "Certificate subject does not match expected value"
             )
+        
 
 def cert_validexts(cert, policy=[]):
     """valida extensões do certificado.
@@ -55,7 +56,7 @@ def valida_cert(certificate, subject):
         print("Certificate is in valid time!")
 
         # verificar identidade... (e.g.)
-        cert_validsubject(certificate, subject)
+        cert_validsubject(certificate, [(x509.NameOID.COMMON_NAME, subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value)])
         print("Certificate subject is valid!")
         
         # verificar aplicabilidade... (e.g.)
