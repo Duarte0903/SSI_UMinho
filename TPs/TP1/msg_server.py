@@ -55,31 +55,36 @@ class ServerWorker(object):
         command = parts[0]
 
         if command == "send":
-            if len(parts) < 3:
-                return "MSG RELAY SERVICE: command error!" + "\n" + help_str
+            # Solução à trolha mas tem que ser assim para já
+            if len(parts) == 3:
+                return txt
             
             uid = parts[1]
             subject = parts[2]
             message = parts[3]
             signature = parts[4]
-
-            if uid not in self.user_public_keys:
-                return "MSG RELAY SERVICE: UID unkown!"
             
-            public_key = self.user_public_keys[uid]
+            # ver como consigo obter a chave pública de que enviou a mensagem
 
-            if public_key.verify(
-                signature,
-                message.encode(),
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            ):
-                timestamp = time.time()
-                self.message_queues[uid].append((self.msg_cnt, subject, message, timestamp))
-                print(self.message_queues[uid])
+            # Verify the signature
+            try:
+                sender_public_key.verify(
+                    signature,
+                    message,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
 
-            else:
-                return "MSG RELAY SERVICE: Invalid signature!"
+                
+
+                # Signature verification successful
+                return "Signature verified. Message received successfully"
+            except Exception as e:
+                # Signature verification failed
+                return f"Signature verification failed: {e}"   
         
         elif command.startswith("-"):
             return txt

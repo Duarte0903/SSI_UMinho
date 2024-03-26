@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import re
 import sys
@@ -82,8 +83,8 @@ class Client:
                 server_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
                     
                 if valida.valida_cert(server_certificate, server_certificate.subject):
-                    server_uid = server_certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value
                     self.server_public_key = server_certificate.public_key()
+                    print("Server certificate loaded!")
             
             except Exception as e:
                 print(e)
@@ -93,19 +94,27 @@ class Client:
         elif cmd == "send":
             if len(args) != 2:
                 return "help"
+            
+            if not self.private_key:
+                send_msg = "MSG RELAY SERVICE: User data not loaded!"
+                return send_msg.encode()
 
             uid = args[0]
-            subject = args[1]
+            subject = args[1] # Duvida: o subject deve ser o subject do userdata.p12 ?
 
-            message = input("Escreve a mensagem (limite de 1000 bytes): ")[:1000]
+            message = input("Escreve a mensagem (limite de 1000 bytes): ").encode()
 
             signature = self.private_key.sign(
-                message.encode(),
-                padding.PKCS1v15(),
+                message,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
                 hashes.SHA256()
             )
 
-            return f"send {uid} {subject} {message} {signature}"
+            send_msg = f"send {uid} {subject} {message.decode()} {base64.b64encode(signature).decode()}"
+            return send_msg.encode()
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')
@@ -120,6 +129,12 @@ async def tcp_echo_client():
     msg = client.process()
     while msg:
         writer.write(msg)
+        await writer.drain()
+
+        if msg == b'User data not loaded!':
+            print(msg.decode())
+            msg = client.process()
+
         msg = await reader.read(max_msg_size)
         if msg:
             msg = client.process(msg)
