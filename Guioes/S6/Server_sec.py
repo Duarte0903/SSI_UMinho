@@ -16,33 +16,33 @@ class ServerWorker(object):
         self.msg_cnt = 0
         self.key = fixed_key_256  # Usando chave fixa de 256 bits
 
-
     def process(self, msg):
-        """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
-            Retorna a mensagem a transmitir como resposta (`None` para
-            finalizar ligação) """
         self.msg_cnt += 1
+        if len(msg) < 12:
+            print('Closing connection...')
+            return None
         cipher = AESGCM(self.key)
         decrypted_msg = cipher.decrypt(nonce=msg[:12], data=msg[12:], associated_data=b'')
         txt = decrypted_msg.decode()
         print('%d : %r' % (self.id, txt))
         new_msg = txt.upper().encode()
-        return new_msg if len(new_msg) > 0 else None
+        nonce = os.urandom(12)
+        encrypted_msg = nonce + cipher.encrypt(nonce=nonce, data=new_msg, associated_data=b'')
+        return encrypted_msg if len(encrypted_msg) > 0 else None
 
 async def handle_echo(reader, writer):
     global conn_cnt
     conn_cnt += 1
     addr = writer.get_extra_info('peername')
+    print("Connection from {}".format(addr))
     srvwrk = ServerWorker(conn_cnt, addr)
     data = await reader.read(max_msg_size)
-    while True:
-        if not data: continue
-        if data[:1] == b'\n': break
+    while data: 
         data = srvwrk.process(data)
-        if not data: break
-        writer.write(data)
-        await writer.drain()
-        data = await reader.read(max_msg_size)
+        if data:
+            writer.write(data)
+            await writer.drain()
+            data = await reader.read(max_msg_size)
     print("[%d]" % srvwrk.id)
     writer.close()
 
@@ -50,14 +50,12 @@ def run_server():
     loop = asyncio.new_event_loop()
     coro = asyncio.start_server(handle_echo, '127.0.0.1', conn_port)
     server = loop.run_until_complete(coro)
-    # Serve requests until Ctrl+C is pressed
     print('Serving on {}'.format(server.sockets[0].getsockname()))
     print('  (type ^C to finish)\n')
     try:
         loop.run_forever()
     except KeyboardInterrupt:
         pass
-    # Close the server
     server.close()
     loop.run_until_complete(server.wait_closed())
     loop.close()

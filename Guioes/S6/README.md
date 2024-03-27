@@ -3,22 +3,20 @@
 ## Relatório do Guião da Semana 6
 
 1. **Client_sec.py**
-    - A **classe Client** inicia o cliente com uma chave AES-GCM fixa de 256 bits.
+    - A função **process** é responsável por **processar mensagens enviadas e recebidas pelo cliente**. Ele recebe uma mensagem como entrada (msg). Se a mensagem não estiver vazia, ela é **descriptografada usando a chave e o nonce fornecidos**. A mensagem descriptografada é então exibida na tela. O método então solicita ao usuário **uma nova mensagem para enviar ao servidor**. Se o comprimento da nova mensagem for **zero**, significa que o **usuário deseja encerrar a conexão**, e o método retorna None. Caso contrário, a nova mensagem é **criptografada e retornada para ser enviada ao servidor**.
 
-    - A **função process** processa mensagens recebidas do servidor. Decifra a mensagem recebida e exibe na tela. Solicita uma nova mensagem ao user.
+    - A função **tcp_echo_client()**: é assíncrona e define a lógica do cliente. Ela cria uma **conexão TCP com o servidor em       '127.0.0.1' na porta conn_port**. Uma instância da **classe Client é criada para lidar com a comunicação com o servidor**. A função então entra em um **loop onde recebe mensagens do usuário** e as **envia para o servidor** e recebe e processa as respostas do servidor. Quando uma **mensagem vazia é recebida do servidor**, a conexão é encerrada.
+    
+    - A função **run_client** é responsável por **executar o cliente**. Ela obtém o loop de eventos assíncronos padrão **(asyncio.get_event_loop()) e executa a função tcp_echo_client() até a conclusão**.
 
-    - A **função tcp_echo_client** estabelece uma conexão assíncrona com o servidor. Entra num loop para processar as mensagens. Obtém uma mensagem do user através do **método process.** Cifra a mensagem com a chave AES-GCM e envia ao servidor. Lê a resposta do servidor e tenta decifrar usando a mesma chave. Se a autenticação da mensagem falhar, exibe uma mensagem de erro. O loop continua assim, até receber uma mensagem vazia do user ou do servidor.
-
-    - A **função run_client** cria um novo evento de loop. Define o evento de loop recém-criado, como o evento de loop atual. Executa a **função tcp_echo_client** até que seja concluída.
-
-    - O programa estabelece uma comunicação segura entre o cliente e o servidor, trocando mensagens cifradas e autenticadas usando o algoritmo AES-GCM. O cliente processa continuamente as mensagens recebidas do servidor e envia novas mensagens, até que a comunicação seja encerrada.
 
 2. **Server_sec.py:**
-    - A **função handle_echo** trata de uma conexão de cliente. Cria uma instância de ServerWorker para lidar com a conexão. Lê as mensagens do cliente, processa e envia de volta as respostas. Encerra a conexão quando uma mensagem vazia é recebida.
 
-    - A **função run_server** inicializa um novo evento de loop e um servidor na porta especificada e o servidor fica em execução até que seja interrompido pelo usuário (pressionando Ctrl+C). Quando interrompido, fecha o servidor e o loop de eventos.
+    - A função **process** é responsável por processar as **mensagens recebidas do cliente**. Ele primeiro **decifra a mensagem usando a chave e o nonce fornecidos**. Em seguida, converte o **texto decifrado para maiúsculas e o codifica novamente**. Finalmente, **criptografa a mensagem modificada** usando a mesma chave e um novo nonce e a **retorna para ser enviada de volta ao cliente**.
 
-    - O servidor recebe conexões de clientes, processa as mensagens recebidas e envia de volta as respostas modificadas. Ele opera de forma assíncrona, permitindo que múltiplas conexões sejam tratadas simultaneamente.
+    - A função **handle_echo** manipula uma **conexão de cliente**. Quando um **cliente se conecta**, ela cria uma instância de ServerWorker para lidar com essa **conexão específica**. Em seguida, entra num **loop onde lê mensagens do cliente**, passa-as para o método **process da instância ServerWorker** e envia as **respostas de volta ao cliente**. O loop continua até que não haja mais dados para ler do cliente. Se o cliente fechar a conexão, o loop termina e a conexão é fechada.
+
+    - A função **run_server** é responsável por **iniciar o servidor**. Ela cria um novo **loop de eventos**, inicia o servidor na interface '127.0.0.1' e na porta especificada (conn_port) usando a **função asyncio.start_server**. Em seguida, entra em um loop infinito (loop.run_forever()) para continuar a **aceitar novas conexões** até que seja interrompido por um **sinal de interrupção (Ctrl + C)**. Quando isso acontece, o servidor é fechado e o loop de eventos é encerrado.
  
 3.  **Client_dh.py:**
     - A classe Client é a implementação do cliente. No método __init__, o cliente é iniciado com um socket opcional, um contador de mensagens e uma chave partilhada. O método process é usado para processar mensagens recebidas do servidor. Na primeira mensagem, o cliente gera parâmetros Diffie-Hellman, cria uma chave privada e troca essa chave com a chave pública do servidor para criar uma chave partilhada. Essa chave partilhada é então usada para derivar uma chave de 32 bytes usando o HKDF (Key Derivation Function baseado em HMAC). A chave pública do cliente é então retornada em formato PEM. Para todas as outras mensagens, o cliente simplesmente imprime a mensagem recebida e solicita uma nova mensagem para enviar.

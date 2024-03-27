@@ -69,5 +69,4 @@ def run_client():
     loop = asyncio.get_event_loop()
     loop.run_until_complete(tcp_echo_client())
 
-
 run_client()
