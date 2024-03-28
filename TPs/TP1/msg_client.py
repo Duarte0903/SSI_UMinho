@@ -2,15 +2,13 @@ import asyncio
 import base64
 import os
 import re
-import sys
 import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
 from cryptography import x509
-from cryptography.x509.oid import NameOID
 
 conn_port = 8443
 max_msg_size = 9999
@@ -21,6 +19,18 @@ def get_userdata(p12_fname):
     password = None # p12 não está protegido...
     (private_key, user_cert, [ca_cert]) = pkcs12.load_key_and_certificates(p12, password)
     return (private_key, user_cert, ca_cert)
+
+# Funções mkpair e unpair fornecidas
+def mkpair(x, y):
+    len_x = len(x)
+    len_x_bytes = len_x.to_bytes(2, "little")
+    return len_x_bytes + x + y
+
+def unpair(xy):
+    len_x = int.from_bytes(xy[:2], "little")
+    x = xy[2 : len_x + 2]
+    y = xy[len_x + 2 :]
+    return x, y
 
 class Client:
     def __init__(self, sckt=None):
@@ -100,7 +110,7 @@ class Client:
                 return send_msg.encode()
 
             uid = args[0]
-            subject = args[1] # Duvida: o subject deve ser o subject do userdata.p12 ?
+            subject = args[1]
 
             message = input("Escreve a mensagem (limite de 1000 bytes): ").encode()
 
@@ -112,9 +122,26 @@ class Client:
                 ),
                 hashes.SHA256()
             )
+            
+            signed_message = mkpair(message, signature)
 
-            send_msg = f"send {uid} {subject} {message.decode()} {base64.b64encode(signature).decode()}"
-            return send_msg.encode()
+            print(f'SIGNATURE: {signature}\n')
+
+            send_msg = f"send {uid} {subject} {signed_message}".encode()
+            return send_msg
+        
+        elif cmd == "askqueue":
+            if not self.private_key:
+                send_msg = "MSG RELAY SERVICE: User data not loaded!"
+                return send_msg.encode()
+            
+        elif cmd == "getmsg":
+            if len(args) != 1:
+                return "help"
+            
+            if not self.private_key:
+                send_msg = "MSG RELAY SERVICE: User data not loaded!"
+                return send_msg.encode()
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')

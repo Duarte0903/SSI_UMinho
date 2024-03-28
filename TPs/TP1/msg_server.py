@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import datetime
 import os
 import re
@@ -7,10 +8,9 @@ import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
 from cryptography import x509
-from cryptography.x509.extensions import ExtensionOID
 from cryptography.x509.oid import NameOID
 
 conn_cnt = 0
@@ -30,6 +30,17 @@ def get_userdata(p12_fname):
     (private_key, user_cert, [ca_cert]) = pkcs12.load_key_and_certificates(p12, password)
     return (private_key, user_cert, ca_cert)
 
+def mkpair(x, y):
+    len_x = len(x)
+    len_x_bytes = len_x.to_bytes(2, "little")
+    return len_x_bytes + x + y
+
+def unpair(xy):
+    len_x = int.from_bytes(xy[:2], "little")
+    x = xy[2 : len_x + 2]
+    y = xy[len_x + 2 :]
+    return x, y
+
 class ServerWorker(object):
     def __init__(self, cnt, addr=None):
         self.id = cnt
@@ -42,8 +53,8 @@ class ServerWorker(object):
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
 
-        self.user_public_keys = {}  # Dicionário para armazenar as chaves públicas dos utilizadores UID -> chave
-        self.message_queues = {}    # Dicionário para armazenar as filas de mensagens dos utilizadores UID -> lista de mensagens
+        self.user_public_keys = {}  # Chaves públicas dos utilizadores UID -> chave
+        self.message_queues = {}    # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -61,30 +72,42 @@ class ServerWorker(object):
             
             uid = parts[1]
             subject = parts[2]
-            message = parts[3]
-            signature = parts[4]
-            
-            # ver como consigo obter a chave pública de que enviou a mensagem
+            signed_message = parts[3]
 
-            # Verify the signature
+            for part in parts[4:]:
+                signed_message += " " + part
+
+            print(f"SIGNED MESSAGE: {signed_message}")
+
             try:
-                sender_public_key.verify(
-                    signature,
-                    message,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH
-                    ),
-                    hashes.SHA256()
-                )
+                type(signed_message)
+                print(signed_message)
+                message, signature = unpair(signed_message)
 
-                
+                for sender_uid, public_key in self.user_public_keys.items():
+                    if public_key.verify(
+                        signature, 
+                        message, 
+                        padding.PSS(
+                            mgf=padding.MGF1(hashes.SHA256()), 
+                            salt_length=padding.PSS.MAX_LENGTH
+                        ), 
+                        hashes.SHA256()):
 
-                # Signature verification successful
-                return "Signature verified. Message received successfully"
+                        stored_message = (sender_uid, datetime.datetime.now(), subject, message, False)
+
+                        if uid not in self.message_queues:
+                            self.message_queues[uid] = []
+                            self.message_queues[uid].append(stored_message)
+
+                        else:
+                            self.message_queues[uid].append(stored_message)
+                        
+                        return "MSG RELAY SERVICE: message sent and stored!"
+                    
             except Exception as e:
-                # Signature verification failed
-                return f"Signature verification failed: {e}"   
+                print(e)
+                return "MSG RELAY SERVICE: error verifying message signature!"
         
         elif command.startswith("-"):
             return txt
