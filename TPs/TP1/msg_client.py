@@ -74,10 +74,7 @@ class Client:
             self.ou = user_cert.subject.get_attributes_for_oid(x509.NameOID.ORGANIZATIONAL_UNIT_NAME)[0].value
             self.cn = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
 
-            self.public_key = self.user_cert.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
+            self.public_key = self.user_cert.public_key()
 
             print("User certificate loaded!")
 
@@ -109,8 +106,8 @@ class Client:
                 send_msg = "MSG RELAY SERVICE: User data not loaded!"
                 return send_msg.encode()
 
-            uid = args[0]
-            subject = args[1]
+            uid = args[0].encode()
+            subject = args[1].encode()
 
             message = input("Escreve a mensagem (limite de 1000 bytes): ").encode()
 
@@ -125,9 +122,7 @@ class Client:
             
             signed_message = mkpair(message, signature)
 
-            print(f'SIGNATURE: {signature}\n')
-
-            send_msg = f"send {uid} {subject} {signed_message}".encode()
+            send_msg = b"send " + uid + b" " + subject + b" " + signed_message.hex().encode()
             return send_msg
         
         elif cmd == "askqueue":

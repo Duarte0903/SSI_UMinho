@@ -1,9 +1,6 @@
 import asyncio
-import base64
 import datetime
-import os
 import re
-import time
 import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives import serialization
@@ -70,18 +67,13 @@ class ServerWorker(object):
             if len(parts) == 3:
                 return txt
             
-            uid = parts[1]
-            subject = parts[2]
-            signed_message = parts[3]
-
-            for part in parts[4:]:
-                signed_message += " " + part
-
-            print(f"SIGNED MESSAGE: {signed_message}")
+            msg_parts = txt.split(' ')
+            
+            uid = msg_parts[1]
+            subject = msg_parts[2]
+            signed_message = bytes.fromhex(parts[3])
 
             try:
-                type(signed_message)
-                print(signed_message)
                 message, signature = unpair(signed_message)
 
                 for sender_uid, public_key in self.user_public_keys.items():
@@ -93,7 +85,7 @@ class ServerWorker(object):
                             salt_length=padding.PSS.MAX_LENGTH
                         ), 
                         hashes.SHA256()):
-
+                        print("Signature verified!")
                         stored_message = (sender_uid, datetime.datetime.now(), subject, message, False)
 
                         if uid not in self.message_queues:
