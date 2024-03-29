@@ -24,11 +24,11 @@ class ServerWorker(object):
                 password= b'1234',
                 backend=default_backend()
             )
+            self.server_public_key = self.private_key.public_key()
 
-        with open("MSG_CLI1.crt", "rb") as cert_file:
+        with open("MSG_SERVER.crt", "rb") as cert_file:
             self.certB = cert_file.read()
             cert = load_pem_x509_certificate(self.certB, default_backend())
-            self.client_public_key = cert.public_key()
             
     @staticmethod
     def mkpair(x, y):
@@ -56,7 +56,7 @@ class ServerWorker(object):
             print("Received gx from Client.")
             self.gx = gx
             # Gerando gy (calculando aleatoriamente)
-            gy = b"gy_generated_by_server"  # Aqui você pode gerar gy de forma aleatória ou conforme a lógica do seu aplicativo
+            gy = self.server_public_key.encode()
             # Assinando gy, gx e enviando para o cliente
             data_to_sign = self.mkpair(gy, self.gx)
             signature = self.private_key.sign(

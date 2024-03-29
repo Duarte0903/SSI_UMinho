@@ -5,6 +5,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.x509 import load_pem_x509_certificate
 from cryptography.hazmat.backends import default_backend
 import socket
+import Server_sts
 
 conn_port = 8443
 max_msg_size = 9999
@@ -23,6 +24,7 @@ class Client:
                     password=b'1234',
                     backend=default_backend()
                 )
+                self.client_public_key = self.private_key.public_key()
         except ValueError as e:
             print("Error loading client private key:", e)
             self.private_key = None
@@ -32,7 +34,6 @@ class Client:
             with open("MSG_CLI1.crt", "rb") as cert_file:
                 self.certA = cert_file.read()
                 cert = load_pem_x509_certificate(self.certA, default_backend())
-                self.client_public_key = cert.public_key()
         except ValueError as e:
             print("Error loading server public key:", e)
             self.server_public_key = None
@@ -60,7 +61,7 @@ class Client:
         self.msg_cnt += 1
         if self.msg_cnt == 1:  # Primeira mensagem enviada pelo cliente
             # Envio gx (calculado aleatoriamente pelo cliente)
-            gx = b"gx_generated_by_client"  # Isso precisa ser corrigido
+            gx = self.client_public_key.encode()
             self.gx = gx
             print("Sending gx to Server.")
             return gx
@@ -140,7 +141,8 @@ async def tcp_echo_client():
     reader, writer = await asyncio.open_connection('127.0.0.1', conn_port)
     addr = writer.get_extra_info('peername')
     client = Client(addr)
-    msg = client.process(None)  # Passa None como a primeira mensagem
+    server = Server_sts.process(msg)
+    msg = client.process(server)
     while msg:
         writer.write(msg)
         await writer.drain()
