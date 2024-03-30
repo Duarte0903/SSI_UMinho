@@ -40,13 +40,12 @@ class Client:
         self.private_key = None
         self.user_cert = None
         self.ca_cert = None
-
         self.public_key = None
+
+        self.server_cert = None
         self.server_public_key = None
 
         self.pseudonym = None
-
-        self.kmaster = None
 
     def process(self, msg=b""):
         self.msg_cnt +=1
@@ -85,40 +84,63 @@ class Client:
             return send_msg
         
         elif cmd == "server_key":
-            print("Received server message!")
             if isinstance(msg, str):
                 msg = msg.encode()
+
             server_key_data_b64 = msg.split(b' ')[1]
             full_pair = base64.b64decode(server_key_data_b64)
 
-            sig_pubs_pair, cert_pub_pair = unpair(full_pair)
-            
-            signature, pub_server_user_pair = unpair(sig_pubs_pair)
+            server_public_key_bytes, sig_cert_pair = unpair(full_pair)
 
-            server_public_key, server_certificate = unpair(cert_pub_pair)
+            signature, server_cert_bytes = unpair(sig_cert_pair)
 
-            server_certificate = x509.load_pem_x509_certificate(server_certificate, default_backend())
+            self.server_cert = x509.load_pem_x509_certificate(server_cert_bytes, default_backend())
 
-            server_public_key = serialization.load_pem_public_key(server_public_key, default_backend())
-            
-            self.server_public_key = server_public_key.public_bytes(encoding=serialization.Encoding.PEM,format=serialization.PublicFormat.SubjectPublicKeyInfo)
+            self.server_public_key = serialization.load_pem_public_key(server_public_key_bytes, default_backend())
 
-            if valida.valida_cert(server_certificate, server_certificate.subject):
-                print("Server certificate loaded!")
+            try:
+                # Validação do certificado do servidor
+                valida.valida_cert(self.server_cert, self.ca_cert)
 
-            if server_public_key.verify(
-                signature,
-                pub_server_user_pair,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH
-                ),
-                hashes.SHA256()):
-                print("Server public key signature verified!")
-            else:
-                print("Server public key signature not verified!")
+                user_pub_key_bytes = self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
 
-            return "MSG RELAY SERVICE: Server key exchange completed successfully!"
+                pub_server_user_pair = mkpair(server_public_key_bytes, user_pub_key_bytes)
+
+                # Validação da assinatura do servidor
+                self.server_public_key.verify(
+                    signature,
+                    pub_server_user_pair,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+
+                pub_user_server_pair = mkpair(user_pub_key_bytes, server_public_key_bytes)
+
+                signature = self.private_key.sign(
+                    pub_user_server_pair,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+
+                user_cert_bytes = self.user_cert.public_bytes(encoding=serialization.Encoding.PEM)
+
+                user_sig_pair = mkpair(signature, user_cert_bytes)
+
+                user_sig_pair_b64 = base64.b64encode(user_sig_pair)
+
+                send_msg = b"user_cert " + user_sig_pair_b64
+
+                return send_msg
+
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error validating server certificate or signature!"
 
         elif cmd == "send":
             if len(args) != 2:
@@ -143,14 +165,36 @@ class Client:
             )
             
             signed_message = mkpair(message, signature)
+            
+            sub_message_pair = mkpair(subject, signed_message)
 
-            send_msg = b"send " + uid + b" " + subject + b" " + signed_message.hex().encode()
+            send_pair = mkpair(uid, sub_message_pair)
+
+            send_pair_b64 = base64.b64encode(send_pair)
+
+            send_msg = b"send " + send_pair_b64
             return send_msg
         
         elif cmd == "askqueue":
             if not self.private_key:
                 send_msg = "MSG RELAY SERVICE: User data not loaded!"
                 return send_msg.encode()
+            
+            signature = self.private_key.sign(
+                cmd.encode(),
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+
+            signed_cmd = mkpair(cmd.encode(), signature)
+            signed_cmd_64 = base64.b64encode(signed_cmd)
+
+            send_msg = b"askqueue " + signed_cmd_64
+
+            return send_msg
             
         elif cmd == "getmsg":
             if len(args) != 1:
@@ -173,12 +217,22 @@ async def tcp_echo_client():
     msg = client.process()
     while msg:
         if isinstance(msg, str):
-            msg = msg.encode()  # convert string to bytes if necessary
+            msg = msg.encode()
+
+        if msg.startswith(b'-user'):
+            msg = client.process(msg)
+
+        if msg == b'askqueue':
+            msg = client.process(msg)
+
+        if msg.startswith(b'getmsg'):
+            msg = client.process(msg)
+
         writer.write(msg)
         await writer.drain()
 
         if msg == b'User data not loaded!':
-            print(msg.decode())  # convert bytes to string for printing
+            print(msg.decode())
             msg = client.process()
 
         msg = await reader.read(max_msg_size)

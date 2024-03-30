@@ -49,11 +49,9 @@ def valida_cert(certificate, subject):
         
         # obs: pressupõe que a cadeia de certifica só contém 2 níveis
         certificate.verify_directly_issued_by(cert_load("projCA/MSG_CA.crt"))
-        print("Certificate is signed by CA!")
         
         # verificar período de validade...
         cert_validtime(certificate)
-        print("Certificate is in valid time!")
 
         # verificar identidade... (e.g.)
         cert_validsubject(certificate, [(x509.NameOID.COMMON_NAME, subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value)])
@@ -69,9 +67,7 @@ def valida_cert(certificate, subject):
                 )
             ],
         )
-        print("Certificate extensions are valid!")
-
-        print("Certificate is valid!")
+        
         return True
 
     except:

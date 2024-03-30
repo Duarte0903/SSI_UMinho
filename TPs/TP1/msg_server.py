@@ -48,8 +48,9 @@ class ServerWorker(object):
 
         self.server_public_key = self.private_key.public_key()
 
-        self.user_public_keys = {}  # Chaves públicas dos utilizadores UID -> chave
-        self.message_queues = {}    # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
+        self.user_public_keys_dict = {}  # dicionário de chaves públicas dos utilizadores (UID -> chave pública)
+        self.user_public_keys = []       # lista de chaves públicas dos utilizadores
+        self.message_queues = {}         # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -65,25 +66,34 @@ class ServerWorker(object):
             if len(parts) == 3:
                 return txt
             
-            msg_parts = txt.split(' ')
-            
-            uid = msg_parts[1]
-            subject = msg_parts[2]
-            signed_message = bytes.fromhex(parts[3])
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            message_data = base64.b64decode(message_data_b64)
+
+            uid, sub_message_pair = unpair(message_data)
+
+            subject, signed_message = unpair(sub_message_pair)
+
+            message, signature = unpair(signed_message)
 
             try:
-                message, signature = unpair(signed_message)
-
-                for sender_uid, public_key in self.user_public_keys.items():
-                    if public_key.verify(
-                        signature, 
-                        message, 
-                        padding.PSS(
-                            mgf=padding.MGF1(hashes.SHA256()), 
-                            salt_length=padding.PSS.MAX_LENGTH
-                        ), 
-                        hashes.SHA256()):
+                # verificar se alguma chave pública de utilizador valida a assinatura
+                for sender_uid, public_key in self.user_public_keys_dict.items():
+                    try:
+                        public_key.verify(
+                            signature, 
+                            message, 
+                            padding.PSS(
+                                mgf=padding.MGF1(hashes.SHA256()), 
+                                salt_length=padding.PSS.MAX_LENGTH
+                            ), 
+                            hashes.SHA256()
+                        )
+    
                         print("Signature verified!")
+
                         stored_message = (sender_uid, datetime.datetime.now(), subject, message, False)
 
                         if uid not in self.message_queues:
@@ -92,15 +102,18 @@ class ServerWorker(object):
 
                         else:
                             self.message_queues[uid].append(stored_message)
+
+                        print(self.message_queues)
                         
                         return "MSG RELAY SERVICE: message sent and stored!"
+                    
+                    except Exception as e:
+                        print(e)
+                        return "MSG RELAY SERVICE: error verifying message signature!"
                     
             except Exception as e:
                 print(e)
                 return "MSG RELAY SERVICE: error verifying message signature!"
-        
-        elif command.startswith("-"):
-            return txt
                
         elif command == "user_pub_key":
             user_public_key_data = msg.split(b" ")[1:]
@@ -109,13 +122,12 @@ class ServerWorker(object):
             try:
                 user_public_key = serialization.load_pem_public_key(user_public_key_data, default_backend())
 
-                pub_server_user_pair = mkpair(self.server_public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                ), user_public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                ))
+                self.user_public_keys.append(user_public_key)
+
+                user_public_key_bytes = user_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+                server_public_key_bytes = self.server_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+                pub_server_user_pair = mkpair(server_public_key_bytes, user_public_key_bytes)
 
                 signature = self.private_key.sign(
                     pub_server_user_pair,
@@ -126,24 +138,11 @@ class ServerWorker(object):
                     hashes.SHA256()
                 )
 
-                x = self.server_public_key.verify(
-                    signature,
-                    pub_server_user_pair,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH
-                    ),
-                    hashes.SHA256()
-                )
+                server_cert_bytes = self.server_cert.public_bytes(encoding=serialization.Encoding.PEM)
+
+                sig_cert_pair = mkpair(signature, server_cert_bytes)    
                 
-                if x:
-                    print("Verified!")
-                else:
-                    print("Not verified!")
-                    
-                sig_pubs_pair = mkpair(signature, pub_server_user_pair)
-                cert_pub_pair = mkpair(self.server_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),self.server_cert.public_bytes(encoding=serialization.Encoding.PEM))
-                send_pair = mkpair(sig_pubs_pair, cert_pub_pair)
+                send_pair = mkpair(server_public_key_bytes, sig_cert_pair)
                 send_pair_b64 = base64.b64encode(send_pair)
 
                 send_msg = b"server_key " + send_pair_b64
@@ -153,6 +152,86 @@ class ServerWorker(object):
             except Exception as e:
                 print(e)
                 return "MSG RELAY SERVICE: error loading user public key!"
+            
+        elif command == "user_cert":
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            message_data = base64.b64decode(message_data_b64)
+
+            signature, user_cert_bytes = unpair(message_data)
+
+            user_cert = x509.load_pem_x509_certificate(user_cert_bytes, default_backend())
+
+            try:
+                # Validação do certificado do utilizador
+                valida.valida_cert(user_cert, self.ca_cert)
+
+                for key in self.user_public_keys:
+                    user_pub_key_bytes = key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+                    server_public_key_bytes = self.server_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+                    pub_user_server_pair = mkpair(user_pub_key_bytes, server_public_key_bytes)
+
+                    # Validação da assinatura do utilizador
+                    key.verify(
+                        signature,
+                        pub_user_server_pair,
+                        padding.PSS(
+                            mgf=padding.MGF1(hashes.SHA256()),
+                            salt_length=padding.PSS.MAX_LENGTH
+                        ),
+                        hashes.SHA256()
+                    )
+
+                    # Adicionar chave pública do utilizador ao dicionário de chaves públicas
+                    self.user_public_keys_dict[user_cert.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value] = key
+
+                    return "MSG RELAY SERVICE: user certificate and signature validated!"
+
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error validating user certificate and signature!"
+            
+        elif command == "askqueue":
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            message_data = base64.b64decode(message_data_b64)
+
+            cmd, signature = unpair(message_data)
+
+            try:
+                # verificar se alguma chave pública de utilizador valida a assinatura
+                for sender_uid, public_key in self.user_public_keys_dict.items():
+                    try:
+                        public_key.verify(
+                            signature, 
+                            cmd, 
+                            padding.PSS(
+                                mgf=padding.MGF1(hashes.SHA256()), 
+                                salt_length=padding.PSS.MAX_LENGTH
+                            ), 
+                            hashes.SHA256()
+                        )
+    
+                        print("Signature verified!")
+
+                        if sender_uid in self.message_queues:
+                            return "MSG RELAY SERVICE: " + str(self.message_queues[sender_uid])
+                        
+                        else:
+                            return "MSG RELAY SERVICE: no messages to show!"
+                    
+                    except Exception as e:
+                        print(e)
+                        return "MSG RELAY SERVICE: error verifying message signature!"
+                    
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error verifying message signature!"
 
         elif command == "help":
             return help_str
