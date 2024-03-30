@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography import x509
 from cryptography.x509.oid import NameOID
+import base64
 
 conn_cnt = 0
 conn_port = 8443
@@ -43,12 +44,9 @@ class ServerWorker(object):
         self.id = cnt
         self.addr = addr
         self.msg_cnt = 0
-        self.private_key, self.user_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
+        self.private_key, self.server_cert, self.ca_cert = get_userdata("projCA/MSG_SERVER.p12")
 
-        self.public_key = self.user_cert.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
+        self.server_public_key = self.private_key.public_key()
 
         self.user_public_keys = {}  # Chaves públicas dos utilizadores UID -> chave
         self.message_queues = {}    # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
@@ -104,26 +102,57 @@ class ServerWorker(object):
         elif command.startswith("-"):
             return txt
                
-        elif command == "user_cert":
-            try:
-                pattern = r'^user_cert\s+'
-                certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
-                
-                user_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
+        elif command == "user_pub_key":
+            user_public_key_data = msg.split(b" ")[1:]
+            user_public_key_data = b" ".join(user_public_key_data)
 
-                if valida.valida_cert(user_certificate, user_certificate.subject):
-                    user_uid = user_certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value
-                    self.user_public_keys[user_uid] = user_certificate.public_key()
-                    self.message_queues[user_uid] = []
-                    send_msg = f"server_cert {self.user_cert.public_bytes(encoding=serialization.Encoding.PEM).decode()}"
-                    return send_msg
+            try:
+                user_public_key = serialization.load_pem_public_key(user_public_key_data, default_backend())
+
+                pub_server_user_pair = mkpair(self.server_public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo
+                ), user_public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo
+                ))
+
+                signature = self.private_key.sign(
+                    pub_server_user_pair,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+
+                x = self.server_public_key.verify(
+                    signature,
+                    pub_server_user_pair,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
                 
+                if x:
+                    print("Verified!")
                 else:
-                    return "MSG RELAY SERVICE: certificate not validated!"
+                    print("Not verified!")
+                    
+                sig_pubs_pair = mkpair(signature, pub_server_user_pair)
+                cert_pub_pair = mkpair(self.server_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo),self.server_cert.public_bytes(encoding=serialization.Encoding.PEM))
+                send_pair = mkpair(sig_pubs_pair, cert_pub_pair)
+                send_pair_b64 = base64.b64encode(send_pair)
+
+                send_msg = b"server_key " + send_pair_b64
+
+                return send_msg
             
             except Exception as e:
                 print(e)
-                return "MSG RELAY SERVICE: error loading user certificate!"
+                return "MSG RELAY SERVICE: error loading user public key!"
 
         elif command == "help":
             return help_str
@@ -143,8 +172,10 @@ async def handle_echo(reader, writer):
         if not data: continue
         if data[:1] == b'\n': break
         response = srvwrk.process(data)
-        if response:
+        if isinstance(response, str):
             writer.write(response.encode())
+        else:
+            writer.write(response)
             await writer.drain()
         data = await reader.read(max_msg_size)
     print("[%d]" % srvwrk.id)

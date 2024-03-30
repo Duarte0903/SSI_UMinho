@@ -36,28 +36,32 @@ class Client:
     def __init__(self, sckt=None):
         self.sckt = sckt
         self.msg_cnt = 0
+
         self.private_key = None
         self.user_cert = None
         self.ca_cert = None
+
         self.public_key = None
         self.server_public_key = None
-        self.pseudonym = None
-        self.cn = None
-        self.ou = None
 
+        self.pseudonym = None
+
+        self.kmaster = None
 
     def process(self, msg=b""):
         self.msg_cnt +=1
 
         cmd_parts = msg.decode().split(' ')
+
         cmd = cmd_parts[0]
         args = cmd_parts[1:]
 
-        match = re.match(r'^-user (\w+)$', msg.decode())
-        if match:
-            user = match.group(1)
+        if cmd == "-user":
+            user = args[0]
+
             if not user:
                 return "User data not found!"
+            
             fname = f"projCA/{user}.p12"
             
             if not args:
@@ -71,32 +75,50 @@ class Client:
             self.ca_cert = ca_cert
 
             self.pseudonym = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
-            self.ou = user_cert.subject.get_attributes_for_oid(x509.NameOID.ORGANIZATIONAL_UNIT_NAME)[0].value
-            self.cn = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
 
-            self.public_key = self.user_cert.public_key()
+            self.public_key = self.private_key.public_key()
 
-            print("User certificate loaded!")
+            print("User public key loaded!")
 
-            send_msg = f"user_cert {self.user_cert.public_bytes(encoding=serialization.Encoding.PEM).decode()}"
+            send_msg = b"user_pub_key " + self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
 
-            return send_msg.encode()
+            return send_msg
         
-        elif cmd == "server_cert":
-            try:
-                pattern = r'^server_cert\s+'
-                certificate = re.sub(pattern, '', msg.decode(), flags=re.MULTILINE)
-                
-                server_certificate = x509.load_pem_x509_certificate(certificate.encode(), default_backend())
-                    
-                if valida.valida_cert(server_certificate, server_certificate.subject):
-                    self.server_public_key = server_certificate.public_key()
-                    print("Server certificate loaded!")
-            
-            except Exception as e:
-                print(e)
-                return "MSG RELAY SERVICE: error loading user certificate!"
+        elif cmd == "server_key":
+            print("Received server message!")
+            if isinstance(msg, str):
+                msg = msg.encode()
+            server_key_data_b64 = msg.split(b' ')[1]
+            full_pair = base64.b64decode(server_key_data_b64)
 
+            sig_pubs_pair, cert_pub_pair = unpair(full_pair)
+            
+            signature, pub_server_user_pair = unpair(sig_pubs_pair)
+
+            server_public_key, server_certificate = unpair(cert_pub_pair)
+
+            server_certificate = x509.load_pem_x509_certificate(server_certificate, default_backend())
+
+            server_public_key = serialization.load_pem_public_key(server_public_key, default_backend())
+            
+            self.server_public_key = server_public_key.public_bytes(encoding=serialization.Encoding.PEM,format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+            if valida.valida_cert(server_certificate, server_certificate.subject):
+                print("Server certificate loaded!")
+
+            if server_public_key.verify(
+                signature,
+                pub_server_user_pair,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()):
+                print("Server public key signature verified!")
+            else:
+                print("Server public key signature not verified!")
+
+            return "MSG RELAY SERVICE: Server key exchange completed successfully!"
 
         elif cmd == "send":
             if len(args) != 2:
@@ -141,7 +163,7 @@ class Client:
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')
         new_msg = input().encode()
-        #
+        
         return new_msg if len(new_msg)>0 else None
 
 async def tcp_echo_client():
@@ -150,11 +172,13 @@ async def tcp_echo_client():
     client = Client(addr)
     msg = client.process()
     while msg:
+        if isinstance(msg, str):
+            msg = msg.encode()  # convert string to bytes if necessary
         writer.write(msg)
         await writer.drain()
 
         if msg == b'User data not loaded!':
-            print(msg.decode())
+            print(msg.decode())  # convert bytes to string for printing
             msg = client.process()
 
         msg = await reader.read(max_msg_size)
