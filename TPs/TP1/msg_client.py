@@ -176,6 +176,7 @@ class Client:
             return send_msg
         
         elif cmd == "askqueue":
+            user = args[0].encode()
             if not self.private_key:
                 send_msg = "MSG RELAY SERVICE: User data not loaded!"
                 return send_msg.encode()
@@ -190,7 +191,8 @@ class Client:
             )
 
             signed_cmd = mkpair(cmd.encode(), signature)
-            signed_cmd_64 = base64.b64encode(signed_cmd)
+            tudo = mkpair(user, signed_cmd)
+            signed_cmd_64 = base64.b64encode(tudo)
 
             send_msg = b"askqueue " + signed_cmd_64
 
