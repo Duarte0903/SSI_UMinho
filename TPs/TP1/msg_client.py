@@ -73,7 +73,7 @@ class Client:
             self.user_cert = user_cert
             self.ca_cert = ca_cert
 
-            self.pseudonym = user_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+            self.pseudonym = user_cert.subject.get_attributes_for_oid(x509.NameOID.PSEUDONYM)[0].value
 
             self.public_key = self.private_key.public_key()
 
@@ -168,7 +168,9 @@ class Client:
             
             sub_message_pair = mkpair(subject, signed_message)
 
-            send_pair = mkpair(uid, sub_message_pair)
+            uid_sender_pair = mkpair(uid, self.pseudonym.encode())
+
+            send_pair = mkpair(uid_sender_pair, sub_message_pair)
 
             send_pair_b64 = base64.b64encode(send_pair)
 
@@ -176,13 +178,14 @@ class Client:
             return send_msg
         
         elif cmd == "askqueue":
-            user = args[0].encode()
             if not self.private_key:
                 send_msg = "MSG RELAY SERVICE: User data not loaded!"
                 return send_msg.encode()
             
+            user = self.pseudonym.encode()
+            
             signature = self.private_key.sign(
-                cmd.encode(),
+                user,
                 padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH
@@ -190,11 +193,10 @@ class Client:
                 hashes.SHA256()
             )
 
-            signed_cmd = mkpair(cmd.encode(), signature)
-            tudo = mkpair(user, signed_cmd)
-            signed_cmd_64 = base64.b64encode(tudo)
+            user_sign_pair = mkpair(user, signature)
+            user_sign_pair_b64 = base64.b64encode(user_sign_pair)
 
-            send_msg = b"askqueue " + signed_cmd_64
+            send_msg = b"askqueue " + user_sign_pair_b64
 
             return send_msg
             
@@ -205,6 +207,29 @@ class Client:
             if not self.private_key:
                 send_msg = "MSG RELAY SERVICE: User data not loaded!"
                 return send_msg.encode()
+            
+            msg_num = args[0].encode()
+
+            user = self.pseudonym.encode()
+
+            signature = self.private_key.sign(
+                msg_num,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+
+            signed_msg_num = mkpair(msg_num, signature)
+
+            user_num_sign = mkpair(user, signed_msg_num)
+
+            user_num_sign_b64 = base64.b64encode(user_num_sign)
+
+            send_msg = b"getmsg " + user_num_sign_b64
+
+            return send_msg
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')

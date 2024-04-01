@@ -21,6 +21,9 @@ help_str = "Usage:\n-user <FNAME>\tSpecify user data file (default: userdata.p12
                 "getmsg <NUM>\tRetrieve a specific message\n" \
                 "help\tPrint this help message\n"
 
+message_queues = {}          # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
+user_public_keys_dict = {}   # dicionário de chaves públicas dos utilizadores (UID -> chave pública)
+
 def get_userdata(p12_fname):
     with open(p12_fname, "rb") as f:
         p12 = f.read()
@@ -48,9 +51,7 @@ class ServerWorker(object):
 
         self.server_public_key = self.private_key.public_key()
 
-        self.user_public_keys_dict = {}  # dicionário de chaves públicas dos utilizadores (UID -> chave pública)
-        self.user_public_keys = []       # lista de chaves públicas dos utilizadores
-        self.message_queues = {}         # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
+        self.user_public_keys = []       # lista de chaves públicas dos utilizadores        
 
     def process(self, msg):
         """ Processa uma mensagem (`bytestring`) enviada pelo CLIENTE.
@@ -72,42 +73,45 @@ class ServerWorker(object):
             message_data_b64 = msg.split(b' ')[1]
             message_data = base64.b64decode(message_data_b64)
 
-            uid, sub_message_pair = unpair(message_data)
+            uid_sender_pair, sub_message_pair = unpair(message_data)
+
+            uid, sender = unpair(uid_sender_pair)
 
             subject, signed_message = unpair(sub_message_pair)
 
             message, signature = unpair(signed_message)
 
+            public_key = user_public_keys_dict[sender]
+
+            verified = False
             try:
-                for sender_uid, public_key in self.user_public_keys_dict.items():
-                    public_key.verify(
-                        signature, 
-                        message, 
-                        padding.PSS(
-                            mgf=padding.MGF1(hashes.SHA256()), 
-                            salt_length=padding.PSS.MAX_LENGTH
-                        ), 
-                        hashes.SHA256()
-                    )
+                public_key.verify(
+                    signature, 
+                    message, 
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()), 
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ), 
+                    hashes.SHA256()
+                )
+                verified = True
 
-                    print("Signature verified!")
-
-                    stored_message = (sender_uid, datetime.datetime.now(), subject, message, False)
-
-                    if uid not in self.message_queues:
-                        self.message_queues[uid] = []
-                        self.message_queues[uid].append(stored_message)
-
-                    else:
-                        self.message_queues[uid].append(stored_message)
-
-                    print(self.message_queues)
-                    
-                    return "MSG RELAY SERVICE: message sent and stored!"
-                
             except Exception as e:
                 print(e)
                 return "MSG RELAY SERVICE: error verifying message signature!"
+
+            if verified:
+                print("Signature verified!")
+                stored_message = (sender, datetime.datetime.now(), subject, message, signature, uid, False)
+
+                if uid in message_queues.keys():
+                    message_queues[uid].append(stored_message)
+                else:
+                    message_queues[uid] = [stored_message]
+
+                print(message_queues)
+
+                return "MSG RELAY SERVICE: message sent and stored!"
                
         elif command == "user_pub_key":
             user_public_key_data = msg.split(b" ")[1:]
@@ -180,7 +184,8 @@ class ServerWorker(object):
                     )
 
                     # Adicionar chave pública do utilizador ao dicionário de chaves públicas
-                    self.user_public_keys_dict[user_cert.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value] = key
+                    user_pseudonym = user_cert.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value.encode()
+                    user_public_keys_dict[user_pseudonym] = key
 
                     return "MSG RELAY SERVICE: user certificate and signature validated!"
 
@@ -189,45 +194,130 @@ class ServerWorker(object):
                 return "MSG RELAY SERVICE: error validating user certificate and signature!"
             
         elif command == "askqueue":
-            # Solução à trolha mas tem que ser assim para já
-            #if len(parts) == 2:
-            #    return txt
-            
             if isinstance(msg, str):
                 msg = msg.encode()
 
             message_data_b64 = msg.split(b' ')[1]
             message_data = base64.b64decode(message_data_b64)
             
-            user, signed_cmd = unpair(message_data)
-            cmd, signature = unpair(signed_cmd)
+            user, signature = unpair(message_data)
 
-            print(self.user_public_keys_dict.items())
+            public_key = user_public_keys_dict[user]
+
+            valid = False
             # verificar se alguma chave pública de utilizador valida a assinatura
             try:
-                for sender_uid, public_key in self.user_public_keys_dict.items():
-                    public_key.verify(
-                        signature, 
-                        cmd, 
-                        padding.PSS(
-                            mgf=padding.MGF1(hashes.SHA256()), 
-                            salt_length=padding.PSS.MAX_LENGTH
-                        ), 
-                        hashes.SHA256()
-                    )
+                public_key.verify(
+                    signature,
+                    user,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+                valid = True
 
-                    print("Signature verified!")
-
-                    if user in self.message_queues:
-                        return "MSG RELAY SERVICE: " + str(self.message_queues[user])
-                    
-                    else:
-                        return "MSG RELAY SERVICE: no messages to show!"
-            
             except Exception as e:
                 print(e)
-                return "MSG RELAY SERVICE: error verifying message signature!"
+                return "MSG RELAY SERVICE: error validating command signature!"
+                
+            if valid:
+                print("Signature verified!")
 
+                if user in message_queues.keys():
+                    unread_messages = []
+
+                    for i, message in enumerate(message_queues[user]):
+                        if not message[-1]:
+                            return_message = f"{i}:{message[0].decode()}:{str(message[1])}:{message[2].decode()}"
+                            unread_messages.append(return_message)
+
+                    return str(unread_messages)
+                
+                else:
+                    return "MSG RELAY SERVICE: message queue empty!"
+                
+        elif command == "getmsg":
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            message_data = base64.b64decode(message_data_b64)
+
+            user, signed_msg_num = unpair(message_data)
+
+            msg_num, signature = unpair(signed_msg_num)
+
+            valid = False
+            
+            user_pub_key = user_public_keys_dict[user]
+            
+            # verificar se a chave pública de utilizador valida a assinatura
+            try:
+                user_pub_key.verify(
+                    signature,
+                    msg_num,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+                valid = True
+
+            except Exception as e:
+                print(e)
+                return "MSG RELAY SERVICE: error validating command signature!"
+            
+            if valid:
+                print("Signature verified!")
+
+                if user in message_queues.keys():
+                    for i, message in enumerate(message_queues[user]):
+                        if i == int(msg_num.decode()):
+
+                            valid2 = False
+                            try:
+                                sender_pub_key = user_public_keys_dict[message[0]]
+
+                                signature = message[-3]
+                                message_bytes = message[-4]
+
+                                sender_pub_key.verify(
+                                    signature,
+                                    message_bytes,
+                                    padding.PSS(
+                                        mgf=padding.MGF1(hashes.SHA256()),
+                                        salt_length=padding.PSS.MAX_LENGTH
+                                    ),
+                                    hashes.SHA256()
+                                )
+                                valid2 = True
+                            
+                            except Exception as e:
+                                print(f"ERROR: {e}")
+                                return "MSG RELAY SERVICE: verification error!"
+                            
+                            print("Sender signature verified!")
+
+                            if valid2 and user == message[5]:
+                                sender = message[0].decode()
+                                message_txt = message[3].decode()
+                                return_message = f"Message from {sender}: {message_txt}"
+                                updated_message = (message[0], message[1], message[2], message[3], message[4], message[5], True)
+                                message_queues[user][i] = updated_message
+                                print(message_queues)
+                                return str(return_message)
+                            
+                            else:
+                                return "MSG RELAY SERVICE: verification error!"
+
+                    return "MSG RELAY SERVICE: unknown message!"
+                
+                else:
+                    return "MSG RELAY SERVICE: message queue empty!"
+            
         elif command == "help":
             return help_str
 
