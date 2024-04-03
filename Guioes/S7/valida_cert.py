@@ -42,7 +42,6 @@ def cert_validexts(cert, policy=[]):
                 "Certificate extensions does not match expected value"
             )
 
-
 def valida_cert(certificate, subject):
     try:
         # cert = cert_load(certificate)
@@ -56,8 +55,9 @@ def valida_cert(certificate, subject):
         print("Certificate is in valid time!")
 
         # verificar identidade... (e.g.)
-        cert_validsubject(certificate, [(x509.NameOID.COMMON_NAME, subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value)])
-        #print("Certificate subject is valid!")
+        cert_subject = certificate.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value  # Atribua o campo subject do certificado a cert_subject
+        cert_validsubject(certificate, [(x509.NameOID.COMMON_NAME, cert_subject)])  # Passe cert_subject para a função cert_validsubject
+        print("Certificate subject is valid!")
         
         # verificar aplicabilidade... (e.g.)
         cert_validexts(
@@ -74,5 +74,6 @@ def valida_cert(certificate, subject):
         print("Certificate is valid!")
         return True
 
-    except:
+    except Exception as e:
+        print("An error occurred during certificate validation:", e)
         return False
