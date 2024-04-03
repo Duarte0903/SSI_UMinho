@@ -25,10 +25,10 @@ parameters_numbers = dh.DHParameterNumbers(p, g)
 parameters = parameters_numbers.parameters(default_backend())
 
 help_str = "Usage:\n-user <FNAME>\tSpecify user data file (default: userdata.p12)\n" \
-              "send <UID> <SUBJECT>\tSend a message\n" \
-                "askqueue\tRequest unread messages\n" \
-                "getmsg <NUM>\tRetrieve a specific message\n" \
-                "help\tPrint this help message\n"
+            "send <UID> <SUBJECT>\tSend a message\n" \
+            "askqueue\tRequest unread messages\n" \
+            "getmsg <NUM>\tRetrieve a specific message\n" \
+            "help\tPrint this help message\n"
 
 message_queues = {}            # filas de mensagens dos utilizadores UID -> lista de mensagens (mensagem -> <NUM> <SENDER> <TIMESTAMP> <SUBJECT> <MESSAGE> <STATUS>)
 user_derived_keys_dict = {}    # dicionário de chaves derivadas dos utilizadores (UID -> chave pública)
@@ -75,10 +75,6 @@ class ServerWorker(object):
         command = parts[0]
 
         if command == "send":
-            # Solução à trolha mas tem que ser assim para já
-            if len(parts) == 3:
-                return txt
-            
             if isinstance(msg, str):
                 msg = msg.encode()
 
@@ -287,7 +283,18 @@ class ServerWorker(object):
                     encryptor = cipher.encryptor()
                     encrypted_message = encryptor.update(unread_messages) + encryptor.finalize()
 
-                    signature_unread_msgs_pair_b64 = base64.b64encode(encrypted_message)
+                    return_signature = self.private_key.sign(
+                        encrypted_message,
+                        padding.PSS(
+                            mgf=padding.MGF1(hashes.SHA256()),
+                            salt_length=padding.PSS.MAX_LENGTH
+                        ),
+                        hashes.SHA256()
+                    )
+
+                    signature_unread_msgs_pair = mkpair(return_signature, encrypted_message)
+
+                    signature_unread_msgs_pair_b64 = base64.b64encode(signature_unread_msgs_pair)
 
                     return b'user_queue ' + signature_unread_msgs_pair_b64
                 
@@ -343,7 +350,18 @@ class ServerWorker(object):
                                 encryptor = cypher.encryptor()
                                 encrypted_message = encryptor.update(return_message.encode()) + encryptor.finalize()
 
-                                encrypted_message_64 = base64.b64encode(encrypted_message)
+                                return_signature = self.private_key.sign(
+                                    encrypted_message,
+                                    padding.PSS(
+                                        mgf=padding.MGF1(hashes.SHA256()),
+                                        salt_length=padding.PSS.MAX_LENGTH
+                                    ),
+                                    hashes.SHA256()
+                                )
+
+                                signature_encrypted_message_pair = mkpair(return_signature, encrypted_message)
+
+                                encrypted_message_64 = base64.b64encode(signature_encrypted_message_pair)
 
                                 return b'msg ' + encrypted_message_64
                             

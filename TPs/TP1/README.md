@@ -44,17 +44,17 @@ Irá por fim ser enviada uma confirmação ao cliente que enviou a mensagem a di
 
 Para um cliente poder ver a sua message queue, deve usar o comando `askqueue`. Este comando irá enviar uma mensagem com o pseudonym do cliente em questão acompanhado por uma assinatura gerada com o mesmo. A mensagem enviada ao servidor irá começar com `askqueue`.
 
-O servidor irá verificar a assinatura com a chave pública do cliente que pode ser obetida com recurso ao pseudonym. Caso a assinatura seja verificadak, o servidor irá juntar numa lista as mensagens onde o boleano seja False. Esta lista será convertida para string e encriptada com a chave derivada do cliente. A string encriptada será enviada numa mensagem que começa com `user_queue`.
+O servidor irá verificar a assinatura com a chave pública do cliente que pode ser obetida com recurso ao pseudonym. Caso a assinatura seja verificadak, o servidor irá juntar numa lista as mensagens onde o boleano seja False. Esta lista será convertida para string e encriptada com a chave derivada do cliente. A string encriptada será enviada juntamente com uma assinatura do servidor numa mensagem que começa com `user_queue`.
 
-O cliente irá receber a mensagem e desencriptar com a chave derivada, podendo assim ver a sua message queue.
+O cliente irá receber a mensagem, verificar a assinatura do servidor e desencriptar com a chave derivada, podendo assim ver a sua message queue.
 
 ## <a id="ver-mensagens">Ver mensagens</a>
 
 Para que um cliente possa ver uma mensagem em específico deve usar o comando `getmsg <msg_num>`. O pedido è feito de forma semelhante ao comando `askqueue`. É gerada uma assinatura com o número da mensagem que se pretende e é por fim enviada uma mensagem para o servidor com o pseudonym, o número da mensagem e a assinatura. Esta mensagem começar com `getmsg`.
 
-No servidor é verificada a assinatura e é procurada a mensagem. Da mensagem guardada são extraidos o sender e a menssagem em si. O boleano passa a ser True visto que a mensagem vai passar a estar lida. O servidor envia por fim uma mensagem encriptada que contém o sender e a mensagem. Esta mensagem começa por `msg`.
+No servidor é verificada a assinatura e é procurada a mensagem. Da mensagem guardada são extraidos o sender e a menssagem em si. O boleano passa a ser True visto que a mensagem vai passar a estar lida. O servidor envia por fim a sua assinatura juntamente com a mensagem encriptada que contém o sender e a mensagem. Esta mensagem começa por `msg`.
 
-O cliente vai receber a mensagem e desencriptar com a chave derivada. A mensagem desencriptada será depois exposta ao utilizador.
+O cliente vai receber a mensagem, verificar a assinatura do servidor e desencriptar com a chave derivada. A mensagem desencriptada será depois exposta ao utilizador.
 
 ##
 

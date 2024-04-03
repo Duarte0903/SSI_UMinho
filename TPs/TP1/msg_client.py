@@ -291,37 +291,75 @@ class Client:
                 msg = msg.encode()
 
             message_data_b64 = msg.split(b' ')[1]
-            encrypted_message = base64.b64decode(message_data_b64)
+            message_data = base64.b64decode(message_data_b64)
+
+            signature, encrypted_message = unpair(message_data)
 
             try:
-                cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
-                decryptor = cipher.decryptor()
-                message = decryptor.update(encrypted_message) + decryptor.finalize()
+                self.server_public_key.verify(
+                    signature,
+                    encrypted_message,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
 
-                print("Message received: ", message.decode())
+                print("Server signature verified!")
 
+                try:
+                    cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
+                    decryptor = cipher.decryptor()
+                    message = decryptor.update(encrypted_message) + decryptor.finalize()
+
+                    print("Message received: ", message.decode())
+
+                except Exception as e:
+                    print(e)
+                    print("Error decrypting message!")
+                    return "MSG RELAY SERVICE: error decrypting message!"
+                
             except Exception as e:
                 print(e)
-                print("Error decrypting message!")
-                return "MSG RELAY SERVICE: error decrypting message!"
+                return "MSG RELAY SERVICE: error verifying server signature!"
 
         elif cmd == "msg":
             if isinstance(msg, str):
                 msg = msg.encode()
 
             message_data_b64 = msg.split(b' ')[1]
-            encrypted_message = base64.b64decode(message_data_b64)
+            message_data = base64.b64decode(message_data_b64)
+
+            signature, encrypted_message = unpair(message_data)
             
             try:
-                cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
-                decryptor = cipher.decryptor()
-                message = decryptor.update(encrypted_message) + decryptor.finalize()
+                self.server_public_key.verify(
+                    signature,
+                    encrypted_message,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
 
-                print("Message received: ", message.decode())
+                print("Server signature verified!")
 
+                try:
+                    cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
+                    decryptor = cipher.decryptor()
+                    message = decryptor.update(encrypted_message) + decryptor.finalize()
+
+                    print("Message received: ", message.decode())
+
+                except Exception as e:
+                    print("Error decrypting message!")
+                    return "MSG RELAY SERVICE: error decrypting message!"
+                
             except Exception as e:
-                print("Error decrypting message!")
-                return "MSG RELAY SERVICE: error decrypting message!"
+                print(e)
+                return "MSG RELAY SERVICE: error verifying server signature!"
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')
@@ -337,6 +375,9 @@ async def tcp_echo_client():
     while msg:
         if isinstance(msg, str):
             msg = msg.encode()
+
+        if len(msg.decode().split(' ')) == 3 and msg.startswith(b'send'):
+            msg = client.process(msg)
 
         if msg.startswith(b'-user'):
             msg = client.process(msg)
