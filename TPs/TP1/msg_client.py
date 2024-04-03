@@ -1,7 +1,7 @@
 import asyncio
 import base64
 import os
-import re
+import traceback
 import valida_cert as valida
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.backends import default_backend
@@ -9,9 +9,18 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 conn_port = 8443
 max_msg_size = 9999
+
+p = 0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FFFFFFFFFFFFFFFF
+g = 2
+parameters_numbers = dh.DHParameterNumbers(p, g)
+parameters = parameters_numbers.parameters(default_backend())
 
 def get_userdata(p12_fname):
     with open(p12_fname, "rb") as f:
@@ -44,8 +53,15 @@ class Client:
 
         self.server_cert = None
         self.server_public_key = None
+        self.server_dh_public_key = None
 
         self.pseudonym = None
+
+        self.dh_private_key = None
+        self.dh_public_key = None
+
+        self.shared_key = None
+        self.derived_key = None
 
     def process(self, msg=b""):
         self.msg_cnt +=1
@@ -76,10 +92,18 @@ class Client:
             self.pseudonym = user_cert.subject.get_attributes_for_oid(x509.NameOID.PSEUDONYM)[0].value
 
             self.public_key = self.private_key.public_key()
-
             print("User public key loaded!")
 
-            send_msg = b"user_pub_key " + self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+            self.dh_private_key = parameters.generate_private_key()
+            self.dh_public_key = self.dh_private_key.public_key()
+            print("DH keys generated!")
+
+            user_dh_pub_key_bytes = self.dh_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+            send_pair = mkpair(self.pseudonym.encode(), user_dh_pub_key_bytes)
+            send_pair_b64 = base64.b64encode(send_pair)
+
+            send_msg = b"user_pub_key " + send_pair_b64
 
             return send_msg
         
@@ -90,21 +114,25 @@ class Client:
             server_key_data_b64 = msg.split(b' ')[1]
             full_pair = base64.b64decode(server_key_data_b64)
 
-            server_public_key_bytes, sig_cert_pair = unpair(full_pair)
+            server_dh_public_key_bytes, sig_cert_pair = unpair(full_pair)
 
             signature, server_cert_bytes = unpair(sig_cert_pair)
 
             self.server_cert = x509.load_pem_x509_certificate(server_cert_bytes, default_backend())
 
-            self.server_public_key = serialization.load_pem_public_key(server_public_key_bytes, default_backend())
+            self.server_public_key = self.server_cert.public_key()
+
+            server_dh_public_key = serialization.load_pem_public_key(server_dh_public_key_bytes, default_backend())
 
             try:
                 # Validação do certificado do servidor
                 valida.valida_cert(self.server_cert, self.ca_cert)
 
-                user_pub_key_bytes = self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+                user_dh_pub_key_bytes = self.dh_public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
 
-                pub_server_user_pair = mkpair(server_public_key_bytes, user_pub_key_bytes)
+                pub_server_user_pair = mkpair(server_dh_public_key_bytes, user_dh_pub_key_bytes)
+
+                user_cert_bytes = self.user_cert.public_bytes(encoding=serialization.Encoding.PEM)
 
                 # Validação da assinatura do servidor
                 self.server_public_key.verify(
@@ -117,7 +145,27 @@ class Client:
                     hashes.SHA256()
                 )
 
-                pub_user_server_pair = mkpair(user_pub_key_bytes, server_public_key_bytes)
+                print("Server certificate and signature validated!")
+
+                try:
+                    self.shared_key = self.dh_private_key.exchange(server_dh_public_key)
+                    print("Shared key generated!")
+
+                    self.derived_key = HKDF(
+                        algorithm=hashes.SHA256(),
+                        length=32,
+                        salt=None,
+                        info=b'handshake data',
+                    ).derive(self.shared_key)
+
+                except Exception as e:
+                    print(e)
+                    traceback.print_exc()
+                    return "MSG RELAY SERVICE: error generating shared key!"
+
+                self.server_dh_public_key = server_dh_public_key
+
+                pub_user_server_pair = mkpair(user_dh_pub_key_bytes, server_dh_public_key_bytes)
 
                 signature = self.private_key.sign(
                     pub_user_server_pair,
@@ -127,8 +175,6 @@ class Client:
                     ),
                     hashes.SHA256()
                 )
-
-                user_cert_bytes = self.user_cert.public_bytes(encoding=serialization.Encoding.PEM)
 
                 user_sig_pair = mkpair(signature, user_cert_bytes)
 
@@ -140,6 +186,7 @@ class Client:
 
             except Exception as e:
                 print(e)
+                traceback.print_exc()
                 return "MSG RELAY SERVICE: error validating server certificate or signature!"
 
         elif cmd == "send":
@@ -153,23 +200,31 @@ class Client:
             uid = args[0].encode()
             subject = args[1].encode()
 
-            message = input("Escreve a mensagem (limite de 1000 bytes): ").encode()
+            # verificar se a mensagem excede o limite de 1000 bytes
+            while True:
+                message = input("Escreve a mensagem (limite de 1000 bytes): ").encode()
+                if len(message) <= 1000:
+                    break
+                print("A mensagem excede o limite de 1000 bytes!")
+
+            cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
+            encryptor = cipher.encryptor()
+            encrypted_message = encryptor.update(message) + encryptor.finalize()
 
             signature = self.private_key.sign(
-                message,
+                encrypted_message,
                 padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH
                 ),
                 hashes.SHA256()
             )
-            
-            signed_message = mkpair(message, signature)
-            
-            sub_message_pair = mkpair(subject, signed_message)
+
+            encrypted_message_pair = mkpair(encrypted_message, signature)
+
+            sub_message_pair = mkpair(subject, encrypted_message_pair)
 
             uid_sender_pair = mkpair(uid, self.pseudonym.encode())
-
             send_pair = mkpair(uid_sender_pair, sub_message_pair)
 
             send_pair_b64 = base64.b64encode(send_pair)
@@ -230,6 +285,43 @@ class Client:
             send_msg = b"getmsg " + user_num_sign_b64
 
             return send_msg
+        
+        elif cmd == "user_queue":
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            encrypted_message = base64.b64decode(message_data_b64)
+
+            try:
+                cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
+                decryptor = cipher.decryptor()
+                message = decryptor.update(encrypted_message) + decryptor.finalize()
+
+                print("Message received: ", message.decode())
+
+            except Exception as e:
+                print(e)
+                print("Error decrypting message!")
+                return "MSG RELAY SERVICE: error decrypting message!"
+
+        elif cmd == "msg":
+            if isinstance(msg, str):
+                msg = msg.encode()
+
+            message_data_b64 = msg.split(b' ')[1]
+            encrypted_message = base64.b64decode(message_data_b64)
+            
+            try:
+                cipher = Cipher(algorithms.AES(self.derived_key), modes.CTR(b'\0' * 16), default_backend())
+                decryptor = cipher.decryptor()
+                message = decryptor.update(encrypted_message) + decryptor.finalize()
+
+                print("Message received: ", message.decode())
+
+            except Exception as e:
+                print("Error decrypting message!")
+                return "MSG RELAY SERVICE: error decrypting message!"
         
         print('Received (%d): %r' % (self.msg_cnt , msg.decode()))
         print('Input message to send (empty to finish)')
