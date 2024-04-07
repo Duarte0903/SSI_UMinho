@@ -58,4 +58,4 @@ O cliente vai receber a mensagem, verificar a assinatura do servidor e desencrip
 
 ##
 
-**Nota:** Os comandos `send`, `askqueue` e `getmsg` rquerem que o cliente esteja autenticado. 
+**Nota:** Os comandos `send`, `askqueue` e `getmsg` requerem que o cliente esteja autenticado. 
