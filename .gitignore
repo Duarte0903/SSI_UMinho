@@ -1,3 +1,5 @@
+.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -161,3 +163,8 @@ cython_debug/
 
 # MacOS Trash
 *.DS_Store
+
+# TP2
+
+*.o
+*_file.csv
