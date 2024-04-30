@@ -91,6 +91,10 @@ int main() {
             send_msg(username);
         } 
 
+        else if (strcmp(command, "send_grp") == 0) {
+            send_grp_msg(username);
+        }
+
         else if (strcmp(command, "inbox") == 0) {
             if (inbox(username) == -1) {
                 printf("Erro ao mostrar inbox\n");
@@ -105,6 +109,7 @@ int main() {
         else if (strcmp(command, "help") == 0) {
             printf("Comandos disponíveis:\n");
             printf("send - send message\n");
+            printf("send_grp - send message to group\n");
             printf("inbox - show user inbox\n");
             printf("exit - exit client\n");
             printf("help - show this command\n");
