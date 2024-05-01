@@ -21,6 +21,12 @@ $ create_group
 
 # Remover um grupo na linha de comandos do MTA
 $ delete_group
+
+# Adicionar utilizador a um grupo na linha de comandos do MTA
+$ add_to_group
+
+# Remover um utilizador de um grupo na linha de comandos do MTA
+$ remove_from_group
 ```
 
 ## Client
