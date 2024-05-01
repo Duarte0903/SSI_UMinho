@@ -15,4 +15,4 @@ $(SRC_DIR)/%.o: $(SRC_DIR)/%.c $(INC_DIR)/message.h
 	$(CC) $(CFLAGS) -I$(INC_DIR) -c -o $@ $<
 
 clean:
-	rm -f $(SRC_DIR)/*.o client mta mta_fifo u1 u2
+	rm -f $(SRC_DIR)/*.o client mta mta_fifo

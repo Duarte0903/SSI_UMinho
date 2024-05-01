@@ -31,6 +31,60 @@ int setup(char *username) {
     return 0;
 }
 
+void message_listener(const char *username) {
+    int fd;
+
+    char fifo_name[50];
+    snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", username);
+    fd = open(fifo_name, O_RDONLY);
+
+    if (fd == -1) {
+        printf("Erro ao abrir fifo\n");
+        return;
+    }
+
+    while (1) {
+        char buffer[MAX_MESSAGE_LENGTH];
+
+        ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
+
+        if (bytes_read == -1) {
+            perror("Error reading from fifo\n");
+            exit(EXIT_FAILURE);
+        } else if (bytes_read == 0) {
+            break;
+        }// enviar mensagem para o fifo do utilizador (comunicacao sincrona)
+
+        Message received_msg;
+
+        if (deserialize_message(buffer, &received_msg, sizeof(buffer)) != 0) {
+            printf("Error deserializing message\n");
+            exit(EXIT_FAILURE);
+        }
+
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            printf("Erro ao criar processo\n");
+            return;
+        }
+
+        if (pid == 0) {
+            printf("\n-------------------------------------------\n");
+            printf("Nova mensagem recebida:\n");
+            printf("De: %s\n", received_msg.sender);
+            printf("Assunto: %s\n", received_msg.subject);
+            printf("Conteúdo: %s\n", received_msg.content);
+            printf("-------------------------------------------\n");
+            printf("mta_client> ");
+            exit(0);
+        }
+
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+
 int inbox(const char *username) {
     printf("-------------------------------------------\n");
 
@@ -78,46 +132,64 @@ int main() {
     char command[MAX_COMMAND_LENGTH];
     char username[20];
 
+    pid_t pid;
+
     if (setup(username) == -1) {
         printf("Erro ao configurar o cliente\n");
         return -1;
     }
 
-    while (1) {
-        printf("mta_client> ");
-        scanf("%s", command);
+    pid = fork();
 
-        if (strcmp(command, "send") == 0) {
-            send_msg(username);
-        } 
+    if (pid < 0) {
+        printf("Erro ao criar processo\n");
+        return -1;
+    }
 
-        else if (strcmp(command, "send_grp") == 0) {
-            send_grp_msg(username);
-        }
+    if (pid > 0) {
+        while (1) {
+            printf("mta_client> ");
+            scanf("%s", command);
 
-        else if (strcmp(command, "inbox") == 0) {
-            if (inbox(username) == -1) {
-                printf("Erro ao mostrar inbox\n");
+            if (strcmp(command, "send") == 0) {
+                send_msg(username);
+            } 
+
+            else if (strcmp(command, "send_grp") == 0) {
+                send_grp_msg(username);
+            }
+
+            else if (strcmp(command, "inbox") == 0) {
+                if (inbox(username) == -1) {
+                    printf("Erro ao mostrar inbox\n");
+                }
+            }
+            
+            else if (strcmp(command, "exit") == 0) {
+                printf("Obrigado e volte sempre ...\n");
+                break;
+            } 
+
+            else if (strcmp(command, "help") == 0) {
+                printf("-------------------------------------------\n");
+                printf("Comandos disponíveis:\n");
+                printf("-------------------------------------------\n");
+                printf("send - send message\n");
+                printf("send_grp - send message to group\n");
+                printf("inbox - show user inbox\n");
+                printf("exit - exit client\n");
+                printf("help - show this command\n");
+                printf("-------------------------------------------\n");
+            }
+            
+            else {
+                printf("Comando inválido\n");
             }
         }
-        
-        else if (strcmp(command, "exit") == 0) {
-            printf("Obrigado e volte sempre ...\n");
-            break;
-        } 
+    }
 
-        else if (strcmp(command, "help") == 0) {
-            printf("Comandos disponíveis:\n");
-            printf("send - send message\n");
-            printf("send_grp - send message to group\n");
-            printf("inbox - show user inbox\n");
-            printf("exit - exit client\n");
-            printf("help - show this command\n");
-        }
-        
-        else {
-            printf("Comando inválido\n");
-        }
+    else {
+        message_listener(username);
     }
     
     return 0;
