@@ -19,7 +19,7 @@
 #define MAX_MESSAGE_LENGTH sizeof(Message)
 
 int setup() {
-    // Create FIFO
+    // verificar se o fifo mta_fifo existe
     if (mkfifo("mta_fifo", 0660) == -1) {
         if (errno != EEXIST) {
             perror("Error creating fifo\n");
@@ -27,7 +27,7 @@ int setup() {
         }
     }
     
-    // Check if the group mta_users exists
+    // verificar se o grupo mta_users existe
     if (system("getent group mta_users > /dev/null") != 0) {
         // Create the mta_users group
         if (system("sudo groupadd mta_users") != 0) {
@@ -35,7 +35,7 @@ int setup() {
             return -1;
         }
 
-        // Change permissions of the mta_users group
+        // mudar as permissoes do fifo para o grupo mta_users
         if (system("sudo chmod g+wrx mta_users") != 0) {
             printf("Error changing group permissions\n");
             return -1;
