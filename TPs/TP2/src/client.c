@@ -9,8 +9,11 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
+#include <grp.h>
 
 #include "../include/message.h"
+#include "../include/mta_groups.h"
+#include "../include/user_handle.h"
 
 #define MAX_MESSAGE_LENGTH sizeof(Message)
 #define MAX_COMMAND_LENGTH 100
@@ -31,19 +34,52 @@ int setup(char *username) {
     return 0;
 }
 
+int show_groups(const char *username) {
+    printf("-------------------------------------------\n");
+
+    printf("Grupos:\n");
+
+    printf("-------------------------------------------\n");
+
+    // Open the group file
+    FILE *group_file = fopen("/etc/group", "r");
+    if (group_file == NULL) {
+        perror("fopen");
+        return 1;
+    }
+
+    // Read each line of the group file
+    struct group *grp;
+    while ((grp = fgetgrent(group_file)) != NULL) {
+        // Check if the user belongs to this group
+        for (char **member = grp->gr_mem; *member != NULL; member++) {
+            if (strcmp(*member, username) == 0) {
+                printf("%s (%d)\n", grp->gr_name, grp->gr_gid);
+                break;
+            }
+        }
+    }
+
+    printf("-------------------------------------------\n");
+
+    // Close the group file
+    fclose(group_file);
+
+    return 0;
+}
+
 void message_listener(const char *username) {
     int fd;
 
-    char fifo_name[50];
-    snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", username);
-    fd = open(fifo_name, O_RDONLY);
-
-    if (fd == -1) {
-        printf("Erro ao abrir fifo\n");
-        return;
-    }
-
     while (1) {
+        char fifo_name[50];
+        snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", username);
+        fd = open(fifo_name, O_RDONLY);
+        if (fd == -1) {
+            printf("Erro ao abrir fifo\n");
+            return;
+        }
+
         char buffer[MAX_MESSAGE_LENGTH];
 
         ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
@@ -53,7 +89,7 @@ void message_listener(const char *username) {
             exit(EXIT_FAILURE);
         } else if (bytes_read == 0) {
             break;
-        }// enviar mensagem para o fifo do utilizador (comunicacao sincrona)
+        }
 
         Message received_msg;
 
@@ -77,7 +113,8 @@ void message_listener(const char *username) {
             printf("Conteúdo: %s\n", received_msg.content);
             printf("-------------------------------------------\n");
             printf("mta_client> ");
-            exit(0);
+            _exit(0);
+            close(fd);
         }
 
         int status;
@@ -112,6 +149,8 @@ int inbox(const char *username) {
         
         char *field = strtok(line, DELIMITER);
         
+        printf("Message ID: %s\n", field);
+        field = strtok(NULL, DELIMITER);
         printf("Sender: %s\n", field);
         field = strtok(NULL, DELIMITER);
         printf("Receiver: %s\n", field);
@@ -124,6 +163,51 @@ int inbox(const char *username) {
     }
 
     fclose(file);
+
+    return 0;
+}
+
+int get_message_by_id(const char *username) {
+    char inbox_path[50];
+    snprintf(inbox_path, sizeof(inbox_path), "%s_file.csv", username);
+
+    char message_id[50];
+    printf("Message ID: ");
+    scanf("%s", message_id);
+
+    FILE *file = fopen(inbox_path, "r");
+    if (file == NULL) {
+        printf("Erro ao abrir ficheiro\n");
+        return -1;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    int first_line_skipped = 0;
+    while (fgets(line, sizeof(line), file)) {
+        if (!first_line_skipped) {
+            first_line_skipped = 1;
+            continue;
+        }
+        line[strcspn(line, "\n")] = '\0';
+        
+        char *field = strtok(line, DELIMITER);
+        if (strcmp(field, message_id) == 0) {
+            printf("-------------------------------------------\n");
+            printf("Mensagem encontrada:\n");
+            printf("-------------------------------------------\n");
+            printf("Message ID: %s\n", field);
+            field = strtok(NULL, DELIMITER);
+            printf("Sender: %s\n", field);
+            field = strtok(NULL, DELIMITER);
+            printf("Receiver: %s\n", field);
+            field = strtok(NULL, DELIMITER);
+            printf("Subject: %s\n", field);
+            field = strtok(NULL, DELIMITER);
+            printf("Content: %s\n", field);
+            printf("-------------------------------------------\n");
+            break;
+        }
+    }
 
     return 0;
 }
@@ -155,6 +239,18 @@ int main() {
                 send_msg(username);
             } 
 
+            else if (strcmp(command, "activate") == 0) {
+                if (activate_user_request(username) == -1) {
+                    printf("Erro ao ativar utilizador\n");
+                }
+            }
+
+            else if (strcmp(command, "deactivate") == 0) {
+                if (deactivate_user_request(username) == -1) {
+                    printf("Erro ao desativar utilizador\n");
+                }
+            }
+
             else if (strcmp(command, "send_grp") == 0) {
                 send_grp_msg(username);
             }
@@ -162,6 +258,54 @@ int main() {
             else if (strcmp(command, "inbox") == 0) {
                 if (inbox(username) == -1) {
                     printf("Erro ao mostrar inbox\n");
+                }
+            }
+
+            else if (strcmp(command, "get_msg") == 0) {
+                if (get_message_by_id(username) == -1) {
+                    printf("Erro ao mostrar mensagem\n");
+                }
+            }
+
+            else if (strcmp(command, "group_inbox") == 0) {
+                if (group_inbox(username) == -1) {
+                    printf("Erro ao mostrar inbox do grupo\n");
+                }
+            }
+
+            else if (strcmp(command, "get_grp_msg") == 0) {
+                if (get_group_message_by_id(username) == -1) {
+                    printf("Erro ao mostrar mensagem do grupo\n");
+                }
+            }
+
+            else if (strcmp(command, "groups") == 0) {
+                if (show_groups(username) == -1) {
+                    printf("Erro ao mostrar grupos\n");
+                }
+            }
+
+            else if (strcmp(command, "create_group") == 0) {
+                if (create_group_request(username) == -1) {
+                    printf("Erro ao criar grupo\n");
+                }
+            }
+
+            else if (strcmp(command, "delete_group") == 0) {
+                if (delete_group_request(username) == -1) {
+                    printf("Erro ao eliminar grupo\n");
+                }
+            }
+
+            else if (strcmp(command, "add_users_to_group") == 0) {
+                if (add_users_to_group(username) == -1) {
+                    printf("Erro ao adicionar utilizadores ao grupo\n");
+                }
+            }
+
+            else if (strcmp(command, "remove_users_from_group") == 0) {
+                if (remove_users_from_group(username) == -1) {
+                    printf("Erro ao remover utilizadores do grupo\n");
                 }
             }
             
@@ -174,10 +318,20 @@ int main() {
                 printf("-------------------------------------------\n");
                 printf("Comandos disponíveis:\n");
                 printf("-------------------------------------------\n");
-                printf("send - send message\n");
-                printf("send_grp - send message to group\n");
-                printf("inbox - show user inbox\n");
-                printf("exit - exit client\n");
+                printf("send - enviar mensagem\n");
+                printf("activate - ativar utilizador\n");
+                printf("deactivate - desativar utilizador\n");
+                printf("send_grp - enviar mensagem para grupo\n");
+                printf("inbox - mostrar inbox\n");
+                printf("get_msg - mostrar mensagem\n");
+                printf("group_inbox - mostrar inbox do grupo\n");
+                printf("get_grp_msg - mostrar mensagem do grupo\n");
+                printf("groups - mostrar grupos\n");
+                printf("create_group - criar grupo\n");
+                printf("delete_group - eliminar grupo\n");
+                printf("add_users_to_group - adicionar utilizadores ao grupo\n");
+                printf("remove_users_from_group - remover utilizadores do grupo\n");
+                printf("exit - sair\n");
                 printf("help - show this command\n");
                 printf("-------------------------------------------\n");
             }

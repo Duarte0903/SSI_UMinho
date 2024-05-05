@@ -14,6 +14,8 @@
 #include <syslog.h>
 
 #include "../include/message.h"
+#include "../include/mta_groups.h"
+#include "../include/user_handle.h"
 
 #define MAX_COMMAND_LENGTH 100
 #define MAX_MESSAGE_LENGTH sizeof(Message)
@@ -23,7 +25,15 @@ int setup() {
     if (mkfifo("mta_fifo", 0660) == -1) {
         if (errno != EEXIST) {
             perror("Error creating fifo\n");
-            exit(-1);
+            return -1;
+        }
+    }
+
+    // verificar se o fifo mta_groups existe
+    if (mkfifo("mta_groups", S_IRWXU | S_IRGRP | S_IWGRP) == -1) {
+        if (errno != EEXIST) {
+            perror("Error creating groups fifo\n");
+            return -1;
         }
     }
     
@@ -34,246 +44,44 @@ int setup() {
             printf("Error creating group\n");
             return -1;
         }
-
-        // mudar as permissoes do fifo para o grupo mta_users
-        if (system("sudo chmod g+wrx mta_users") != 0) {
-            printf("Error changing group permissions\n");
-            return -1;
-        }
     }
 
-    return 0;
-}
-
-int create_group() {
-    char groupname[20];
-
-    printf("Enter group name: ");
-    scanf("%s", groupname);
-
-    // criar novo grupo
-    char group_add_command[100];
-    snprintf(group_add_command, sizeof(group_add_command), "sudo groupadd %s", groupname);
-    if (system(group_add_command) != 0) {
-        printf("Error creating group\n");
+    // mudar as permissoes do fifo mta_fifo para o grupo mta_users com acl
+    if (system("sudo setfacl -m g:mta_users:rwx mta_fifo") != 0) {
+        printf("Error setting fifo group permissions\n");
         return -1;
     }
 
-    printf("Group created successfully\n");
-
-    return 0;
-}
-
-int add_to_group() {
-    char username[20];
-    char groupname[20];
-
-    printf("Enter username: ");
-    scanf("%s", username);
-
-    printf("Enter group name: ");
-    scanf("%s", groupname);
-
-    // adicionar utilizador ao grupo
-    char group_command[100];
-    snprintf(group_command, sizeof(group_command), "sudo usermod -a -G %s %s", groupname, username);
-    if (system(group_command) != 0) {
-        printf("Error adding user to group\n");
+    // mudar as permissoes do fifo mta_groups para o grupo mta_users com acl
+    if (system("sudo setfacl -m g:mta_users:rwx mta_groups") != 0) {
+        printf("Error setting groups fifo group permissions\n");
         return -1;
     }
 
-    printf("User added to group successfully\n");
-
-    return 0;
-}
-
-int remove_from_group() {
-    char username[20];
-    char groupname[20];
-
-    printf("Enter username: ");
-    scanf("%s", username);
-
-    printf("Enter group name: ");
-    scanf("%s", groupname);
-
-    // remover utilizador do grupo
-    char group_command[100];
-    snprintf(group_command, sizeof(group_command), "sudo gpasswd -d %s %s", username, groupname);
-    if (system(group_command) != 0) {
-        printf("Error removing user from group\n");
-        return -1;
-    }
-
-    printf("User removed from group successfully\n");
-
-    return 0;
-}
-
-int delete_group() {
-    char groupname[20];
-
-    printf("Enter group name: ");
-    scanf("%s", groupname);
-
-    // remover grupo
-    char group_delete_command[100];
-    snprintf(group_delete_command, sizeof(group_delete_command), "sudo groupdel %s", groupname);
-    if (system(group_delete_command) != 0) {
-        printf("Error deleting group\n");
-        return -1;
-    }
-
-    printf("Group deleted successfully\n");
-
-    return 0;
-}
-
-int add_user() {
-    char username[20];
-    char password[20];
-
-    printf("Enter username: ");
-    scanf("%s", username);
-
-    printf("Enter password: ");
-    scanf("%s", password);
-
-    // criar novo utilizador
-    char user_add_command[100];
-    snprintf(user_add_command, sizeof(user_add_command), "sudo useradd %s", username);
-    if (system(user_add_command) != 0) {
-        printf("Error creating user\n");
-        return -1;
-    }
-
-    // adicionar password ao utilizador
-    char password_command[100];
-    snprintf(password_command, sizeof(password_command), "echo %s:%s | sudo chpasswd 2>/dev/null", username, password);
-    if (system(password_command) == -1) {
-        printf("Error setting password\n");
-        return -1;
-    }
-
-    // criar a caixa de correio do utilizador
-    char user_file[100];
-    snprintf(user_file, sizeof(user_file), "./%s_file.csv", username);
-    FILE *file = fopen(user_file, "w");
-    if (file == NULL) {
-        printf("Error creating user file\n");
-        return -1;
-    }
-    fprintf(file, "sender;receiver;subject;content;time-stamp\n");
-    fclose(file);
-
-    // gerir as permissões do ficheiro
-    if (chmod(user_file, 0644) != 0) {
-        printf("Error setting file permissions\n");
-        return -1;
-    }
-
-    // adicionar utilizador ao grupo mta_users
-    char group_command[100];
-    snprintf(group_command, sizeof(group_command), "sudo usermod -a -G mta_users %s", username);
-    if (system(group_command) != 0) {
-        printf("Error adding user to group\n");
-        return -1;
-    }
-
-    // controlo de acesso ao ficheiro do utilizador com acl (access control list)
-    char acl_command[200];
-    snprintf(acl_command, sizeof(acl_command), "sudo setfacl -m g:%s:rw,o::-,m::rw  %s", username, user_file);
-    if (system(acl_command) != 0) {
-        printf("Error setting acl permissions for %s\n", username);
-        return -1;
-    }
-
-    // remover o grupo mta_users do ficheiro
-    char remove_group_command[200];
-    snprintf(remove_group_command, sizeof(remove_group_command), "sudo setfacl -x g:mta_users %s", user_file);
-    if (system(remove_group_command) != 0) {
-        printf("Error removing mta_users group from file\n");
-        return -1;
-    }
-
-    // criar o fifo do cliente
-    char fifo_name[100];
-    snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", username);
-    if (mkfifo(fifo_name, 0660) == -1) {
+    // crair fifo para receber pedidos dos utilizadores
+    if (mkfifo("client_fifo", S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) == -1) {
         if (errno != EEXIST) {
             perror("Error creating fifo\n");
-            return -1;
+            exit(1);
         }
     }
 
-    // tirar o fifo do cliente do grupo mta_users com acl
-    char fifo_permitions_command[200];
-    snprintf(fifo_permitions_command, sizeof(fifo_permitions_command), "sudo setfacl -x g:mta_users %s", fifo_name);
-    if (system(fifo_permitions_command) != 0) {
-        printf("Error removing mta_users group from fifo\n");
+    // remover settings the acl
+    if (system("sudo setfacl -b client_fifo") != 0) {
+        printf("Error removing fifo acl\n");
         return -1;
     }
 
-    // dar permissões ao grupo (group_name = username) do client com acl
-    char fifo_acl_command[200];
-    snprintf(fifo_acl_command, sizeof(fifo_acl_command), "sudo setfacl -m g:%s:rwx %s", username, fifo_name);
-    if (system(fifo_acl_command) != 0) {
-        printf("Error setting acl permissions for %s group\n", username);
+    // permissoes acl
+    if (system("sudo setfacl -m u::rw-,g::rw-,o::rw- client_fifo") != 0) {
+        printf("Error setting fifo acl\n");
         return -1;
     }
-
-    printf("User added successfully\n");
-
-    return 0;
-}
-
-int delete_user() {
-    char username[20];
-
-    printf("Enter username: ");
-    scanf("%s", username);
-
-    // remover utilizador
-    char user_delete_command[100];
-    snprintf(user_delete_command, sizeof(user_delete_command), "sudo userdel -r -f %s 2>/dev/null", username);
-    if (system(user_delete_command) != 0) {
-        printf("Error deleting user\n");
-        return -1;
-    }
-
-    // remover ficheiro do utilizador
-    char user_file[100];
-    snprintf(user_file, sizeof(user_file), "./%s_file.csv", username);
-    if (remove(user_file) != 0) {
-        printf("Error deleting user file\n");
-        return -1;
-    }
-
-    // remover fifo do utilizador
-    char fifo_name[100];
-    snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", username);
-    if (remove(fifo_name) != 0) {
-        printf("Error deleting fifo\n");
-        return -1;
-    }
-
-    printf("User deleted successfully\n");
 
     return 0;
 }
 
 void start_service() {
-    if (chmod("mta_fifo", S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP) == -1) {
-        perror("Error setting fifo permissions\n");
-        exit(-1);
-    }
-
-    // permissoes do fifo para o grupo mta_users com acl
-    if (system("sudo setfacl -m g:mta_users:rwx mta_fifo") != 0) {
-        printf("Error setting fifo group permissions\n");
-        exit(-1);
-    }
-
     int fifo_fd = open("mta_fifo", O_RDONLY);
     if (fifo_fd == -1) {
         perror("Error opening fifo\n");
@@ -321,12 +129,29 @@ void start_service() {
                     _exit(-1);
                 }
 
+                // verficar se o sender e receiver pertencem ao grupo mta_users
+                char command[100];
+                snprintf(command, sizeof(command), "getent group mta_users | grep -q '\\b%s\\b'", received_msg.sender);
+                if (system(command) != 0) {
+                    printf("Error: sender does not belong to mta_users group\n");
+                    _exit(-1);
+                }
+                snprintf(command, sizeof(command), "getent group mta_users | grep -q '\\b%s\\b'", received_msg.receiver);
+                if (system(command) != 0) {
+                    printf("Error: receiver does not belong to mta_users group\n");
+                    _exit(-1);
+                }
+
+                // id da mensagem
+                srand(time(NULL));
+                int count = rand() % 1000;
+
                 time_t now = time(NULL);
                 struct tm *tm = localtime(&now);
                 char timestamp[20];
                 strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm);
 
-                fprintf(file, "%s;%s;%s;%s;%s\n", received_msg.sender, received_msg.receiver, received_msg.subject, received_msg.content, timestamp);
+                fprintf(file, "%d;%s;%s;%s;%s;%s\n", count+1, received_msg.sender, received_msg.receiver, received_msg.subject, received_msg.content, timestamp);
                 fclose(file);
 
                 // enviar mensagem para o fifo do utilizador (comunicacao sincrona)
@@ -350,17 +175,18 @@ void start_service() {
                     perror("Error writing to fifo\n");
                     _exit(-1);
                 }
-
                 close(client_fifo);
-                _exit(0);
+                exit(0);
             }
 
-            int status;
-            if (waitpid(pid, &status, 0) == -1) {
-                perror("Error waiting for child process\n");
-                _exit(-1);
-            } else {
-                printf("Message saved to %s's file\n", received_msg.receiver);
+            else {
+                int status;
+                if (waitpid(pid, &status, 0) == -1) {
+                    perror("Error waiting for user child process\n");
+                    _exit(-1);
+                } else {
+                    printf("Message saved to %s's file\n", received_msg.receiver);
+                }
             }
         }
 
@@ -386,6 +212,7 @@ void start_service() {
 
                 printf("Message received for group %s\n", received_msg.group);
 
+                // verificar se o sender pertence ao grupo da mensagem
                 char command[100];
                 snprintf(command, sizeof(command), "getent group %s | grep -w %s | grep -q '\\b%s\\b'", received_msg.group, received_msg.group, received_msg.sender);
                 if (system(command) != 0) {
@@ -395,37 +222,42 @@ void start_service() {
 
                 users = grp->gr_mem;
 
+                // escrever a mensagem no ficheiro do grupo
+                char group_file[100];
+                snprintf(group_file, sizeof(group_file), "./%s_group_file.csv", received_msg.group);
+                FILE *file = fopen(group_file, "a");
+                if (file == NULL) {
+                    printf("Error opening group file\n");
+                    _exit(-1);
+                }
+
+                // id da mensagem
+                srand(time(NULL));
+                int count = rand() % 1000;
+
+                // timestamp
+                time_t now = time(NULL);
+                struct tm *tm = localtime(&now);
+                char timestamp[20];
+                strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm);
+
+                fprintf(file, "%d;%s;%s;%s;%s;%s\n", count+1, received_msg.sender, received_msg.group, received_msg.subject, received_msg.content, timestamp);
+                fclose(file);
+
                 if (*users == NULL) {
                     printf("Error: group has no members\n");
                     exit(-1);
                 }
 
                 while (*users != NULL) {
-                    pid_t pid2= fork();
+                    pid_t pid2 = fork();
 
                     if (pid2 == -1) {
                         perror("Error forking\n");
                         _exit(-1);
                     }
 
-                    if (pid2 == 0) {
-                        printf("saving message to %s's file\n", *users);
-
-                        char user_file[100];
-                        snprintf(user_file, sizeof(user_file), "./%s_file.csv", *users);
-                        FILE *file = fopen(user_file, "a");
-                        if (file == NULL) {
-                            printf("Error opening user file\n");
-                        }
-
-                        time_t now = time(NULL);
-                        struct tm *tm = localtime(&now);
-                        char timestamp[20];
-                        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm);
-
-                        fprintf(file, "%s;%s;%s;%s;%s\n", received_msg.sender, *users, received_msg.subject, received_msg.content, timestamp);
-                        fclose(file);
-
+                    if (pid2 == 0) {        
                         // enviar mensagem para o fifo do utilizador (comunicacao sincrona)
                         char fifo_name[100];
                         snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", *users);
@@ -449,18 +281,19 @@ void start_service() {
                             perror("Error writing to fifo\n");
                             close(client_fifo);
                             _exit(-1);
-                        }
-
+                        }  
                         close(client_fifo);
                         _exit(0);
                     }
 
-                    int status2; 
-                    if (waitpid(pid2, &status2, 0) == -1) {
-                        perror("Error waiting for user child process\n");
-                        _exit(-1);
-                    } else {
-                        printf("Message saved to %s's file\n", *users);
+                    else {
+                        int status2; 
+                        if (waitpid(pid2, &status2, 0) == -1) {
+                            perror("Error waiting for user child process\n");
+                            _exit(-1);
+                        } else {
+                            printf("Message saved to %s's file\n", *users);
+                        }
                     }
 
                     users++;
@@ -485,13 +318,29 @@ int main() {
         return -1;
     }
 
-    pid_t service_pid = fork();
+    pid_t group_request_pid = fork();
+    if (group_request_pid == -1) {
+        printf("Error forking to start group request listener\n");
+        return -1;
+    }
+    if (group_request_pid == 0) {
+        group_request_listener();
+    }
 
+    pid_t user_handle_pid = fork();
+    if (user_handle_pid == -1) {
+        printf("Error forking to start user handle\n");
+        return -1;
+    }
+    if (user_handle_pid == 0) {
+        user_handler();
+    }
+    
+    pid_t service_pid = fork();
     if (service_pid == -1) {
         printf("Error forking to start service\n");
         return -1;
     }
-
     if (service_pid > 0) {
         while (1) {
             char command[MAX_COMMAND_LENGTH];
@@ -499,45 +348,8 @@ int main() {
             printf("mta> ");
             scanf("%s", command);
 
-            if (strcmp(command, "add_user") == 0) {
-                if (add_user() != 0) {
-                    printf("Error adding user\n");
-                }
-            }
-
-            else if (strcmp(command, "delete_user") == 0) {
-                if (delete_user() != 0) {
-                    printf("Error deleting user\n");
-                }
-            }
-
-            else if (strcmp(command, "create_group") == 0) {
-                if (create_group() != 0) {
-                    printf("Error creating group\n");
-                }
-            }
-
-            else if (strcmp(command, "add_to_group") == 0) {
-                if (add_to_group() != 0) {
-                    printf("Error adding user to group\n");
-                }
-            }
-
-            else if (strcmp(command, "remove_from_group") == 0) {
-                if (remove_from_group() != 0) {
-                    printf("Error removing user from group\n");
-                }
-            }
-
-            else if (strcmp(command, "delete_group") == 0) {
-                if (delete_group() != 0) {
-                    printf("Error deleting group\n");
-                }
-            }
-
-            else if (strcmp(command, "exit") == 0) {
+            if (strcmp(command, "exit") == 0) {
                 printf("Exiting MTA ...\n");
-                kill(service_pid, SIGTERM);
                 break;
             }
 
@@ -545,12 +357,6 @@ int main() {
                 printf("-------------------------------------------\n");
                 printf("Commands:\n");
                 printf("-------------------------------------------\n");
-                printf("add_user - adds user to the MTA\n");
-                printf("delete_user - deletes user from the MTA\n");
-                printf("create_group - creates a new group\n");
-                printf("add_to_group - adds user to a group\n");
-                printf("remove_from_group - removes user from a group\n");
-                printf("delete_group - deletes a group\n");
                 printf("exit - exits MTA\n");
                 printf("help - shows this command\n");
                 printf("-------------------------------------------\n");
@@ -559,7 +365,7 @@ int main() {
             else {
                 printf("Invalid command\n");
             }
-        }
+    }
     }
 
     else {
