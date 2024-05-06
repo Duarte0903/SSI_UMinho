@@ -16,20 +16,6 @@
 #include "../include/user_handle.h"
 
 void user_handler() {
-    // crair fifo para receber pedidos dos utilizadores
-    if (mkfifo("client_fifo", S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) == -1) {
-        if (errno != EEXIST) {
-            perror("Error creating fifo\n");
-            exit(1);
-        }
-    }
-
-    // remover settings the acl
-    system("sudo setfacl -b client_fifo");
-
-    // permissoes acl
-    system("sudo setfacl -m u::rw-,g::rw-,o::rw- client_fifo");
-
     int fd;
 
     printf("Listening for user requests...\n");
