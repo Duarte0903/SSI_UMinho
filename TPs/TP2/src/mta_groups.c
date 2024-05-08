@@ -108,13 +108,22 @@ void group_request_listener() {
                 fprintf(file, "id;sender;receiver;subject;content;time-stamp\n");
                 fclose(file);
 
-                // gerir permissões do ficheiro com chmod
-                char chmod_command[200];
-                snprintf(chmod_command, sizeof(chmod_command), "sudo chmod 660 %s", group_file);
-                if (system(chmod_command) != 0) {
-                    printf("Error changing file permissions\n");
+                // gerir permissões do ficheiro com acl para o grupo
+                char acl_command[200];
+                snprintf(acl_command, sizeof(acl_command), "sudo setfacl -m u::rw-,g:%s:rw-,o::--- %s", group_request.groupname, group_file);
+                if (system(acl_command) != 0) {
+                    printf("Error setting acl\n");
                     _exit(-1);
                 }
+
+                // remover permissões do grupo mta_users para o ficheiro do grupo com acl
+                char acl_remove_mta_users_command[200];
+                snprintf(acl_remove_mta_users_command, sizeof(acl_remove_mta_users_command), "sudo setfacl -x g:mta_users %s", group_file);
+                if (system(acl_remove_mta_users_command) != 0) {
+                    printf("Error removing ACL for mta_users group\n");
+                    _exit(-1);
+                }
+
 
                 printf("Grupo %s criado com sucesso\n", group_request.groupname);
             }
@@ -206,12 +215,42 @@ void group_request_listener() {
 
                 // adicionar utilizadores ao grupo
                 for (int i = 0; i < group_request.n_users; i++) {
-                    char group_command[200];
-                    snprintf(group_command, sizeof(group_command), "sudo usermod -a -G %s %s", group_request.groupname, group_request.users[i]);
-                    if (system(group_command) != 0) {
-                        printf("Error adding user to group\n");
+                    // verificar se o utilizador pertence ao grupo mta_users
+                    struct group *grp_mta = getgrnam("mta_users");
+                    int is_member_mta = 0;
+                    for (int j = 0; grp_mta->gr_mem[j] != NULL; j++) {
+                        if (strcmp(grp_mta->gr_mem[j], group_request.users[i]) == 0) {
+                            is_member_mta = 1;
+                            break;
+                        }
                     }
-                    printf("Utilizador %s adicionado ao grupo %s\n", group_request.users[i], group_request.groupname);
+                    if (!is_member_mta) {
+                        printf("Utilizador %s não pertence ao grupo mta_users\n", group_request.users[i]);
+                    }
+
+                    printf("A adicionar utilizador %s ao grupo %s ...\n", group_request.users[i], group_request.groupname);
+
+                    // verificar se o utilizador já pertence ao grupo
+                    struct group *grp = getgrnam(group_request.groupname);
+                    int is_member = 0;
+                    for (int j = 0; grp->gr_mem[j] != NULL; j++) {
+                        if (strcmp(grp->gr_mem[j], group_request.users[i]) == 0) {
+                            is_member = 1;
+                            break;
+                        }
+                    }
+                    if (is_member) {
+                        printf("Utilizador %s já pertence ao grupo %s\n", group_request.users[i], group_request.groupname);
+                    }
+
+                    if (is_member_mta && !is_member) {
+                        char group_command[200];
+                        snprintf(group_command, sizeof(group_command), "sudo usermod -a -G %s %s", group_request.groupname, group_request.users[i]);
+                        if (system(group_command) != 0) {
+                            printf("Error adding user to group\n");
+                        }
+                        printf("Utilizador %s adicionado ao grupo %s\n", group_request.users[i], group_request.groupname);
+                    }
                 }
 
                 printf("Utilizadores adicionados ao grupo %s\n", group_request.groupname);

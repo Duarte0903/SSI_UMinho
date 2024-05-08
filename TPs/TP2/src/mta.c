@@ -257,7 +257,7 @@ void start_service() {
                         _exit(-1);
                     }
 
-                    if (pid2 == 0) {        
+                    if (pid2 == 0) {
                         // enviar mensagem para o fifo do utilizador (comunicacao sincrona)
                         char fifo_name[100];
                         snprintf(fifo_name, sizeof(fifo_name), "%s_fifo", *users);
