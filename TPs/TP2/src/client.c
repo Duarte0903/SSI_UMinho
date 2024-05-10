@@ -68,6 +68,49 @@ int show_groups(const char *username) {
     return 0;
 }
 
+int show_group_members(const char *username) {
+    char group_name[50];
+    printf("Nome do grupo: ");
+    scanf("%s", group_name);
+
+    // ver se o grupo e mta_users
+    if (strcmp(group_name, "mta_users") == 0) {
+        printf("Não é possível mostrar membros do grupo mta_users\n");
+        return -1;
+    }
+
+    // verificar se o grupo existe
+    struct group *grp = getgrnam(group_name);
+    if (grp == NULL) {
+        printf("Grupo não encontrado\n");
+        return -1;
+    }
+
+    // verificar se o utilizador pertence ao grupo
+    int is_member = 0;
+    for (char **member = grp->gr_mem; *member != NULL; member++) {
+        if (strcmp(*member, username) == 0) {
+            is_member = 1;
+            break;
+        }
+    }
+    if (!is_member) {
+        printf("Utilizador não pertence ao grupo\n");
+        return -1;
+    }
+
+    // mostrar membros do grupo
+    printf("-------------------------------------------\n");
+    printf("Membros do grupo %s:\n", group_name);
+    printf("-------------------------------------------\n");
+    for (char **member = grp->gr_mem; *member != NULL; member++) {
+        printf("%s\n", *member);
+    }
+    printf("-------------------------------------------\n");
+
+    return 0;
+}
+
 void message_listener(const char *username) {
     int fd;
 
@@ -285,6 +328,12 @@ int main() {
                 }
             }
 
+            else if (strcmp(command, "group_members") == 0) {
+                if (show_group_members(username) == -1) {
+                    printf("Erro ao mostrar membros do grupo\n");
+                }
+            }
+
             else if (strcmp(command, "create_group") == 0) {
                 if (create_group_request(username) == -1) {
                     printf("Erro ao criar grupo\n");
@@ -327,6 +376,7 @@ int main() {
                 printf("group_inbox - mostrar inbox do grupo\n");
                 printf("get_grp_msg - mostrar mensagem do grupo\n");
                 printf("groups - mostrar grupos\n");
+                printf("group_members - mostrar membros do grupo\n");
                 printf("create_group - criar grupo\n");
                 printf("delete_group - eliminar grupo\n");
                 printf("add_users_to_group - adicionar utilizadores ao grupo\n");

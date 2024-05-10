@@ -18,6 +18,7 @@ $ send_grp # send message to group
 $ inbox # show user inbox
 $ get_msg # get a message by ID
 $ groups # show user groups
+$ group_members # show members of a group
 $ create_group # create group
 $ delete_group # delete group
 $ add_users_to_group # add users to group
