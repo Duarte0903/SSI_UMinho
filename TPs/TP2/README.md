@@ -33,4 +33,4 @@ $ help # show this command
 - O serviço deve ser instalado com o comando `make`
 - Tanto o MTA como o Client têm um comando `help` que contém informação sobre funcionalidades, e um comando `exit` para terminar o programa
 - Nenhum comando possui argumentos
-- Deve ser usado o comando `su <username>` para iniciar sessão com um utilizador do sistema antes the iniciar o Client
+- Deve ser usado o comando `su <username>` para iniciar sessão com um utilizador do sistema antes de iniciar o Client
