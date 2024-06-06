@@ -1,1 +1,0 @@
-Este é um exemplo de texto simples que será criptografado usando o script cfich_chacha20.py.
